@@ -1,0 +1,12 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@ --with=qmake6
+
+override_dh_auto_build:
+	dh_auto_build
+	# Additional build if needed
+
+override_dh_install:
+	# Install binary
+	dh_install -p crystal-audio-player --fail-missing

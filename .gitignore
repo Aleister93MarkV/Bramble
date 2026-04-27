@@ -1,0 +1,63 @@
+# Build artifacts
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+*.out
+*.app
+*.framework
+*.pcb
+*.pro.user
+*.autosave
+*.moc
+moc_*
+qmake_*
+Makefile*
+*.mak
+*.rule
+*.stash
+
+# Build directories
+build/
+build-*/
+cmake-build-*/
+
+# Compiled binaries
+CrystalAudioPlayer
+Bramble
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.kate-swp
+
+# Logs
+logs/
+*.log
+
+# Package managers
+node_modules/
+package-lock.json
+
+# Archives
+*.tar.gz
+*.zip
+*.7z
+
+# Qt specific
+.qmake.stash
+*.pri
+*.prf
+
+# Environment
+.env
+.env.local

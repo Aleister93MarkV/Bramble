@@ -1,0 +1,28 @@
+Source: bramble-player
+Section: sound
+Priority: optional
+Maintainer: Bramble <contact@bramble.player>
+Build-Depends: 
+  debhelper-compat (= 13),
+  qt6-base-dev,
+  qt6-multimedia-dev,
+  libsndfile1-dev,
+  libopenmpt-dev
+Standards-Version: 4.6.2
+Homepage: https://github.com/bramble/bramble
+
+Package: bramble-player
+Architecture: any
+Depends: 
+  ${misc:Depends},
+  ${shlibs:Depends},
+  libqt6core6t64 (>= 6.7.0),
+  libqt6gui6t64 (>= 6.7.0),
+  libqt6widgets6t64 (>= 6.7.0),
+  libsndfile1 (>= 1.0.25),
+  libopenmpt0 (>= 0.6.0)
+Description: Cross-platform audio player with skins
+ A modern audio player with built-in equalizer, 
+ crystallizer effect, visualizer, and customizable skins.
+ .
+ Supports: WAV, MP3, FLAC, OGG, MOD, XM, S3M, IT

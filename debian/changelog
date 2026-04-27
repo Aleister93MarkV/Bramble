@@ -1,0 +1,11 @@
+crystal-audio-player (1.0.0) stable; urgency=low
+
+  * Initial release
+  * Multi-format audio playback (WAV, MP3, FLAC, OGG, MOD, XM, S3M, IT)
+  * 18-band equalizer
+  * Crystallizer effect
+  * Audio visualizer
+  * Skin system with 9 themes
+  * Album art detection
+
+ -- Crystal Audio <contact@crystalaudio.com>  Mon, 27 Apr 2026 00:00:00 +0000

@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "node": "^24.15.0",
+    "node.js": "^0.0.1-security",
+    "opencode-ai": "^1.14.27"
+  }
+}
