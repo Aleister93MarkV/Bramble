@@ -63,7 +63,7 @@ MainWindow::MainWindow(AudioEngine* engine, QWidget *parent)
     m_visWin = std::make_unique<VisualizerWindow>(engine);
     m_skinWin = std::make_unique<SkinWindow>(this);
 
-    setWindowTitle("Crystal Player - Retro Edition");
+    setWindowTitle("Bramble Audio Player");
     resize(550, 300);
     setStyleSheet(SkinManager::getMainWindowStyle());
 
@@ -71,7 +71,7 @@ MainWindow::MainWindow(AudioEngine* engine, QWidget *parent)
     
     QVBoxLayout* leftLayout = new QVBoxLayout();
     
-    m_lblInfo = new QLabel("CRYSTAL AUDIO v1.0", this);
+    m_lblInfo = new QLabel("BRAMBLE AUDIO v1.0", this);
     m_lblInfo->setObjectName("DisplayLabel");
     m_lblInfo->setAlignment(Qt::AlignCenter);
     m_lblInfo->setMinimumHeight(100);

@@ -7,7 +7,7 @@
 EqualizerWindow::EqualizerWindow(AudioEngine* engine, QWidget *parent)
     : QWidget(parent, Qt::Window), m_engine(engine) 
 {
-    setWindowTitle("Digital Equalizer & Crystallizer");
+    setWindowTitle("Bramble Equalizer & Crystallizer");
     resize(600, 350);
     setStyleSheet(SkinManager::getEqWindowStyle());
 

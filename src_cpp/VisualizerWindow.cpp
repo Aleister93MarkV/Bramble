@@ -6,7 +6,7 @@
 VisualizerWindow::VisualizerWindow(AudioEngine* engine, QWidget *parent) 
     : QWidget(parent, Qt::Window | Qt::WindowStaysOnTopHint), m_engine(engine), m_mode(0) 
 {
-    setWindowTitle("Crystal Visualizer");
+    setWindowTitle("Bramble Visualizer");
     resize(600, 200);
     setStyleSheet("background-color: #05050A;");
 
