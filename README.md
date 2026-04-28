@@ -5,18 +5,21 @@ A cross-platform audio player with skins support, built with Qt6 and miniaudio.
 ## Features
 
 - **Multiple Audio Formats**: WAV, AIFF, PCM, FLAC, ALAC, MP3, AAC, OGG, WMA, M4A, MP2, MPC, OPUS, ASF, MOD, XM, S3M, IT
+- **CD Audio Playback**: Play audio CDs directly with libcdio/paranoia support
 - **18-Band Equalizer**: Full parametric equalizer with visual sliders
 - **Crystallizer Effect**: Psychoacoustic bass enhancement
 - **Visualizer**: Real-time audio visualization
 - **Skin System**: 9 built-in themes (Classic, Neon Night, Retro PC, Matrix, Synthwave, Cherry, Ocean, Sunset, Red Fox)
-- **Album Art**: Automatic cover detection from music directory
+- **Album Art**: Automatic cover detection from music directory + MusicBrainz download
+- **File Browser**: Integrated directory navigation with playlist view
 
 ## Requirements
 
 ### Linux
-- Qt6 (Qt6 Widgets, Qt6 Gui, Qt6 Core)
+- Qt6 (Qt6 Widgets, Qt6 Gui, Qt6 Core, Qt6 Network)
 - libsndfile
 - libopenmpt
+- libcdio (for CD Audio)
 
 ### Windows
 - Qt6 for Windows (MinGW or MSVC)
@@ -29,10 +32,13 @@ A cross-platform audio player with skins support, built with Qt6 and miniaudio.
 
 ```bash
 # Install dependencies (Debian/Ubuntu)
-sudo apt install qt6-base-dev qt6-multimedia-dev libsndfile1-dev libopenmpt-dev
+sudo apt install qt6-base-dev qt6-multimedia-dev qt6-network-dev \
+    libsndfile1-dev libopenmpt-dev libcdio-dev libcdio-paranoia-dev
 
-# Build
-make clean && make -j4
+# Build with CMake
+rm -rf build && mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+cmake --build . -j4
 ```
 
 ### Windows
@@ -61,6 +67,15 @@ cmake --build .
 |--------|---------|
 | WAV, AIFF, PCM, FLAC, ALAC, MP3, AAC, OGG, WMA, M4A, MP2, MPC, OPUS, ASF | libsndfile |
 | MOD, XM, S3M, IT, etc. | libopenmpt |
+| Audio CD (CDDA) | libcdio |
+
+## Usage
+
+- **File → Open File**: Open a single audio file
+- **File → Open Folder**: Open a folder and browse audio files
+- **File → Play Audio CD**: Play an audio CD from CD-ROM drive
+
+Double-click files in the browser to play them. Click tracks in the playlist to switch between them.
 
 ## Themes
 
