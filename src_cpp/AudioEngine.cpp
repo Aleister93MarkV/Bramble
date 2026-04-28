@@ -132,6 +132,7 @@ bool AudioEngine::loadSndFile(const std::string& path) {
     }
     
     pImpl->decoderType = Impl::DecoderType::SNDFILE;
+    readSndFileMetadata();
     return true;
 }
 
@@ -157,6 +158,7 @@ bool AudioEngine::loadOpenMPT(const std::string& path) {
         pImpl->sfInfo.frames = (sf_count_t)(pImpl->openmptModule->get_duration_seconds() * 48000);
         
         pImpl->decoderType = Impl::DecoderType::OPENMPT;
+        readOpenMPTMetadata();
         return true;
     } catch (...) {
         pImpl->openmptModule.reset();
@@ -498,7 +500,7 @@ void AudioEngine::processAudioFrames(float* output, int frameCount) {
     impl->peakL *= 0.95f;
     impl->peakR *= 0.95f;
     
-    if (framesToRead < frameCount) {
+            if (framesToRead < frameCount) {
         std::memset(&output[framesToRead * channels], 0, (frameCount - framesToRead) * channels * sizeof(float));
         
         if (impl->fileEnded.load(std::memory_order_acquire)) {
@@ -506,4 +508,69 @@ void AudioEngine::processAudioFrames(float* output, int frameCount) {
             impl->lastPosition.store(0, std::memory_order_release);
         }
     }
+}
+
+void AudioEngine::readSndFileMetadata() {
+    m_metadata = AudioMetadata();
+    if (!pImpl->sndFile) return;
+    
+    const char* title = sf_get_string(pImpl->sndFile, SF_STR_TITLE);
+    const char* artist = sf_get_string(pImpl->sndFile, SF_STR_ARTIST);
+    const char* album = sf_get_string(pImpl->sndFile, SF_STR_ALBUM);
+    const char* genre = sf_get_string(pImpl->sndFile, SF_STR_GENRE);
+    const char* date = sf_get_string(pImpl->sndFile, SF_STR_DATE);
+    const char* track = sf_get_string(pImpl->sndFile, SF_STR_TRACKNUMBER);
+    
+    if (title) m_metadata.title = title;
+    if (artist) m_metadata.artist = artist;
+    if (album) m_metadata.album = album;
+    if (genre) m_metadata.genre = genre;
+    if (date) m_metadata.year = date;
+    if (track) m_metadata.trackNumber = track;
+    
+    int format = pImpl->sfInfo.format;
+    switch (format & SF_FORMAT_TYPEMASK) {
+        case SF_FORMAT_WAV: m_metadata.format = "WAV"; break;
+        case SF_FORMAT_FLAC: m_metadata.format = "FLAC"; break;
+        case SF_FORMAT_AIFF: m_metadata.format = "AIFF"; break;
+        case SF_FORMAT_OGG: m_metadata.format = "OGG"; break;
+        default: m_metadata.format = "Unknown";
+    }
+}
+
+#ifdef WITH_OPENMPT
+void AudioEngine::readOpenMPTMetadata() {
+    m_metadata = AudioMetadata();
+    if (!pImpl->openmptModule) return;
+    
+    try {
+        std::string title = pImpl->openmptModule->get_metadata("title");
+        std::string artist = pImpl->openmptModule->get_metadata("artist");
+        std::string album = pImpl->openmptModule->get_metadata("album");
+        std::string genre = pImpl->openmptModule->get_metadata("genre");
+        std::string year = pImpl->openmptModule->get_metadata("date");
+        std::string track = pImpl->openmptModule->get_metadata("track");
+        
+        if (!title.empty()) m_metadata.title = title;
+        if (!artist.empty()) m_metadata.artist = artist;
+        if (!album.empty()) m_metadata.album = album;
+        if (!genre.empty()) m_metadata.genre = genre;
+        if (!year.empty()) m_metadata.year = year;
+        if (!track.empty()) m_metadata.trackNumber = track;
+    } catch (...) {}
+    
+    m_metadata.format = "Module";
+}
+#endif
+
+std::string AudioEngine::getFormattedMetadata() const {
+    std::string result;
+    if (!m_metadata.title.empty()) result += m_metadata.title + "\n";
+    if (!m_metadata.artist.empty()) result += m_metadata.artist + "\n";
+    if (!m_metadata.album.empty()) result += m_metadata.album + "\n";
+    if (!m_metadata.genre.empty()) result += m_metadata.genre + "\n";
+    if (!m_metadata.year.empty()) result += m_metadata.year + "\n";
+    if (!m_metadata.trackNumber.empty()) result += "Track " + m_metadata.trackNumber + "\n";
+    if (!m_metadata.format.empty()) result += m_metadata.format;
+    return result.empty() ? "Unknown" : result;
 }

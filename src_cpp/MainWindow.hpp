@@ -44,6 +44,7 @@ private:
     QPushButton* m_btnSkin;
     QLabel* m_lblInfo;
     QLabel* m_lblCover;
+    QLabel* m_lblTime;
     QSlider* m_sliderSeek;
     QSlider* m_sliderVol;
     QTimer* m_timer;

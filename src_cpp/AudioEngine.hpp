@@ -14,6 +14,16 @@
 
 #define WITH_OPENMPT
 
+struct AudioMetadata {
+    std::string title;
+    std::string artist;
+    std::string album;
+    std::string genre;
+    std::string year;
+    std::string trackNumber;
+    std::string format;
+};
+
 class AudioEngine {
 public:
     bool hasValidDecoder() const;
@@ -38,6 +48,9 @@ public:
     void getSpectrum(std::vector<float>& outSpectrum);
     void getWaveform(std::vector<float>& outWaveform);
     void getLevels(float& left, float& right);
+
+    AudioMetadata getMetadata() const { return m_metadata; }
+    std::string getFormattedMetadata() const;
     
     static void audioCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
 
@@ -47,9 +60,11 @@ private:
     void cleanupDecoder();
     
     bool loadSndFile(const std::string& path);
+    void readSndFileMetadata();
     
 #ifdef WITH_OPENMPT
     bool loadOpenMPT(const std::string& path);
+    void readOpenMPTMetadata();
 #endif
 
     struct Impl;
@@ -66,6 +81,8 @@ private:
     std::atomic<int> m_sampleIdx{0};
     float m_peakL = 0.0f;
     float m_peakR = 0.0f;
+
+    AudioMetadata m_metadata;
 };
 
 #endif // AUDIOENGINE_HPP

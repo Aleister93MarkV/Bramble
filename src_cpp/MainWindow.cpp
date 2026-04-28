@@ -74,7 +74,7 @@ MainWindow::MainWindow(AudioEngine* engine, QWidget *parent)
     m_lblInfo = new QLabel("CRYSTAL AUDIO v1.0", this);
     m_lblInfo->setObjectName("DisplayLabel");
     m_lblInfo->setAlignment(Qt::AlignCenter);
-    m_lblInfo->setMinimumHeight(50);
+    m_lblInfo->setMinimumHeight(100);
     leftLayout->addWidget(m_lblInfo);
 
     // Botões
@@ -116,6 +116,12 @@ MainWindow::MainWindow(AudioEngine* engine, QWidget *parent)
     m_lblCover->setStyleSheet("QLabel { background-color: #222; color: #888; border: 2px solid #444; font-size: 12px; }");
     mainLayout->addWidget(m_lblCover);
 
+    // Time label below cover
+    m_lblTime = new QLabel("0:00/0:00", this);
+    m_lblTime->setAlignment(Qt::AlignCenter);
+    m_lblTime->setStyleSheet("QLabel { color: #ccc; font-size: 12px; font-weight: bold; }");
+    mainLayout->addWidget(m_lblTime);
+
     // Connect signals
     connect(m_btnOpen, &QPushButton::clicked, this, &MainWindow::openFileDialog);
     connect(m_btnPlay, &QPushButton::clicked, this, &MainWindow::togglePlayPause);
@@ -148,7 +154,7 @@ void MainWindow::openFileDialog() {
     if (!fileName.isEmpty()) {
         if (m_engine->loadFile(fileName.toStdString())) {
             QFileInfo fileInfo(fileName);
-            m_lblInfo->setText(fileInfo.fileName());
+            m_lblInfo->setText(QString::fromStdString(m_engine->getFormattedMetadata()));
             m_sliderSeek->setRange(0, (int)m_engine->getDuration());
             m_engine->play();
             m_btnPlay->setText("PAUSE");
@@ -205,12 +211,24 @@ void MainWindow::toggleSkin() {
 void MainWindow::updateUI() {
     if (m_engine->hasValidDecoder()) {
         float duration = m_engine->getDuration();
+        float position = m_engine->getPosition();
         m_sliderSeek->setRange(0, (int)duration);
-        
+
+        auto formatTime = [](float t) {
+            int mins = (int)t / 60;
+            int secs = (int)t % 60;
+            if (mins >= 60) {
+                return QString("%1:%2").arg(mins / 60).arg(mins % 60, 2, 10, QChar('0')).append(":").append(QString::number(secs).rightJustified(2, '0'));
+            }
+            return QString("%1:%2").arg(mins).arg(secs, 2, 10, QChar('0'));
+        };
+
+        m_lblTime->setText(QString("%1/%2").arg(formatTime(position)).arg(formatTime(duration)));
+
         if (!m_isDraggingSeek && !m_engine->isPlaying()) {
-            m_sliderSeek->setValue((int)m_engine->getPosition());
+            m_sliderSeek->setValue((int)position);
         } else if (m_engine->isPlaying() && !m_isDraggingSeek) {
-            m_sliderSeek->setValue((int)m_engine->getPosition());
+            m_sliderSeek->setValue((int)position);
         }
     }
 }
