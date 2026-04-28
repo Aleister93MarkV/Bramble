@@ -22,6 +22,9 @@ struct AudioMetadata {
     std::string year;
     std::string trackNumber;
     std::string format;
+    std::string channels;
+    std::string sampleRate;
+    std::string bitDepth;
 };
 
 class AudioEngine {

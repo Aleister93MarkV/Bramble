@@ -528,7 +528,21 @@ void AudioEngine::readSndFileMetadata() {
     if (date) m_metadata.year = date;
     if (track) m_metadata.trackNumber = track;
     
+    // Technical info
+    m_metadata.channels = std::to_string(pImpl->sfInfo.channels) + " ch";
+    m_metadata.sampleRate = std::to_string(pImpl->sfInfo.samplerate / 1000.0) + " kHz";
+    
     int format = pImpl->sfInfo.format;
+    int subformat = format & SF_FORMAT_SUBMASK;
+    switch (subformat) {
+        case SF_FORMAT_PCM_S8: case SF_FORMAT_PCM_U8: m_metadata.bitDepth = "8-bit"; break;
+        case SF_FORMAT_PCM_16: m_metadata.bitDepth = "16-bit"; break;
+        case SF_FORMAT_PCM_24: m_metadata.bitDepth = "24-bit"; break;
+        case SF_FORMAT_PCM_32: m_metadata.bitDepth = "32-bit"; break;
+        case SF_FORMAT_FLOAT: m_metadata.bitDepth = "32-bit float"; break;
+        default: m_metadata.bitDepth = "Unknown";
+    }
+    
     switch (format & SF_FORMAT_TYPEMASK) {
         case SF_FORMAT_WAV: m_metadata.format = "WAV"; break;
         case SF_FORMAT_FLAC: m_metadata.format = "FLAC"; break;
@@ -544,12 +558,24 @@ void AudioEngine::readOpenMPTMetadata() {
     if (!pImpl->openmptModule) return;
     
     try {
-        std::string title = pImpl->openmptModule->get_metadata("title");
-        std::string artist = pImpl->openmptModule->get_metadata("artist");
-        std::string album = pImpl->openmptModule->get_metadata("album");
-        std::string genre = pImpl->openmptModule->get_metadata("genre");
-        std::string year = pImpl->openmptModule->get_metadata("date");
-        std::string track = pImpl->openmptModule->get_metadata("track");
+        // Try multiple metadata keys for each field
+        auto getMeta = [this](const std::vector<std::string>& keys) -> std::string {
+            for (const auto& key : keys) {
+                try {
+                    std::string val = pImpl->openmptModule->get_metadata(key);
+                    if (!val.empty()) return val;
+                } catch (...) {}
+            }
+            return "";
+        };
+        
+        std::string title = getMeta({"title", "TITL", "NAME", "name", "song_name"});
+        std::string artist = getMeta({"artist", "AUTH", "AUTHOR", "composer", "COMM"});
+        std::string album = getMeta({"album", "ALBM", "collection"});
+        std::string genre = getMeta({"genre", "GENRE", "style", "type"});
+        std::string year = getMeta({"date", "YEAR", "year", "time", "date"});
+        std::string track = getMeta({"track", "TRACK", "tracknumber", "TRK"});
+        std::string comment = getMeta({"comment", "COMMENT", "msg", "message"});
         
         if (!title.empty()) m_metadata.title = title;
         if (!artist.empty()) m_metadata.artist = artist;
@@ -557,20 +583,48 @@ void AudioEngine::readOpenMPTMetadata() {
         if (!genre.empty()) m_metadata.genre = genre;
         if (!year.empty()) m_metadata.year = year;
         if (!track.empty()) m_metadata.trackNumber = track;
+        
+        // Get additional module info
+        try {
+            std::string type = pImpl->openmptModule->get_metadata("type");
+            if (!type.empty()) m_metadata.format = type;
+            else m_metadata.format = "Module";
+        } catch (...) {
+            m_metadata.format = "Module";
+        }
+        
+        // Technical info for modules
+        m_metadata.channels = "4-8 ch";  // Typical Amiga module channels
+        m_metadata.sampleRate = "48 kHz";
+        m_metadata.bitDepth = "8-16 bit";
+        
+        // Add comment if available
+        if (!comment.empty() && m_metadata.title.empty()) {
+            m_metadata.title = comment.substr(0, 50);
+        }
     } catch (...) {}
-    
-    m_metadata.format = "Module";
 }
 #endif
 
 std::string AudioEngine::getFormattedMetadata() const {
     std::string result;
-    if (!m_metadata.title.empty()) result += m_metadata.title + "\n";
-    if (!m_metadata.artist.empty()) result += m_metadata.artist + "\n";
-    if (!m_metadata.album.empty()) result += m_metadata.album + "\n";
-    if (!m_metadata.genre.empty()) result += m_metadata.genre + "\n";
-    if (!m_metadata.year.empty()) result += m_metadata.year + "\n";
-    if (!m_metadata.trackNumber.empty()) result += "Track " + m_metadata.trackNumber + "\n";
-    if (!m_metadata.format.empty()) result += m_metadata.format;
-    return result.empty() ? "Unknown" : result;
+    if (!m_metadata.title.empty()) result += "Título: " + m_metadata.title + "\n";
+    if (!m_metadata.artist.empty()) result += "Artista: " + m_metadata.artist + "\n";
+    if (!m_metadata.album.empty()) result += "Álbum: " + m_metadata.album + "\n";
+    if (!m_metadata.genre.empty()) result += "Gênero: " + m_metadata.genre + "\n";
+    if (!m_metadata.year.empty()) result += "Ano: " + m_metadata.year + "\n";
+    if (!m_metadata.trackNumber.empty()) result += "Faixa: " + m_metadata.trackNumber + "\n";
+    
+    // Technical info
+    std::string techInfo;
+    if (!m_metadata.format.empty()) techInfo += m_metadata.format;
+    if (!m_metadata.channels.empty()) techInfo += " | " + m_metadata.channels;
+    if (!m_metadata.sampleRate.empty()) techInfo += " | " + m_metadata.sampleRate;
+    if (!m_metadata.bitDepth.empty()) techInfo += " | " + m_metadata.bitDepth;
+    if (!techInfo.empty()) result += techInfo;
+    
+    if (result.empty()) {
+        return "Informações não disponíveis";
+    }
+    return result;
 }
