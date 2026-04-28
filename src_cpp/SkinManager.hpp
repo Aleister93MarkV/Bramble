@@ -19,15 +19,16 @@ public:
   static QMap<QString, Theme> &getThemes() {
     static QMap<QString, Theme> themes;
     if (themes.isEmpty()) {
-      themes["Classic"] = createClassicTheme();
-      themes["Neon Night"] = createNeonNightTheme();
-      themes["Retro PC"] = createRetroPCTheme();
-      themes["Matrix"] = createMatrixTheme();
-      themes["Synthwave"] = createSynthwaveTheme();
-      themes["Cherry"] = createCherryTheme();
-      themes["Ocean"] = createOceanTheme();
-      themes["Sunset"] = createSunsetTheme();
-      themes["Red Fox"] = createRedFoxTheme();
+themes["Classic"] = createClassicTheme();
+       themes["Neon Night"] = createNeonNightTheme();
+       themes["Retro PC"] = createRetroPCTheme();
+       themes["Matrix"] = createMatrixTheme();
+       themes["Synthwave"] = createSynthwaveTheme();
+       themes["Cherry"] = createCherryTheme();
+       themes["Ocean"] = createOceanTheme();
+       themes["Sunset"] = createSunsetTheme();
+       themes["Red Fox"] = createRedFoxTheme();
+       themes["Impulse Tracker"] = createImpulseTrackerTheme();
     }
     return themes;
   }
@@ -137,6 +138,18 @@ public:
     t.accent = "#FF4400";
     t.btnFace = "#CC4400";
     t.btnText = "#FFFFFF";
+    return t;
+  }
+
+  static Theme createImpulseTrackerTheme() {
+    Theme t;
+    t.name = "Impulse Tracker";
+    t.bgMain = "#0000AA";      // Classic DOS blue background
+    t.bgDisplay = "#000088";    // Slightly darker blue for display
+    t.textDigital = "#00FFFF";   // Bright cyan digital text
+    t.accent = "#FFFF00";      // Yellow accent (classic IT highlight)
+    t.btnFace = "#AAAAAA";      // Gray button face
+    t.btnText = "#000000";      // Black button text
     return t;
   }
 
