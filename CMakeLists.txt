@@ -14,18 +14,12 @@ else()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -O3 -march=native -ffast-math")
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Gui Core)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Gui Core Network)
 find_package(PkgConfig REQUIRED)
 
-if(WIN32)
-    set(SDL2_LIBRARY "SDL2")
-    set(LIBSNDFILE_LIBRARY "sndfile")
-    set(OPENMPT_LIBRARY "openmpt")
-else()
-    pkg_check_modules(SDL2 REQUIRED sdl2)
-    pkg_check_modules(LIBSNDFILE REQUIRED sndfile)
-    pkg_check_modules(OPENMPT REQUIRED libopenmpt)
-endif()
+pkg_check_modules(LIBSNDFILE REQUIRED sndfile)
+pkg_check_modules(OPENMPT REQUIRED libopenmpt)
+pkg_check_modules(LIBCDIO REQUIRED libcdio)
 
 set(SOURCES
     src_cpp/main.cpp
@@ -65,12 +59,12 @@ endif()
 include_directories(${INCLUDE_DIRS})
 
 if(WIN32)
-    set(PLATFORM_LIBS Qt6::Widgets Qt6::Gui Qt6::Core winmm libsndfile-1 libopenmpt)
+    set(PLATFORM_LIBS Qt6::Widgets Qt6::Gui Qt6::Core Qt6::Network winmm libsndfile-1 libopenmpt)
     if(MSVC)
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /ENTRY:wmainCRTStartup")
     endif()
 else()
-    set(PLATFORM_LIBS Qt6::Widgets Qt6::Gui Qt6::Core ${LIBSNDFILE_LIBRARIES} ${OPENMPT_LIBRARIES} pthread)
+    set(PLATFORM_LIBS Qt6::Widgets Qt6::Gui Qt6::Core Qt6::Network ${LIBSNDFILE_LIBRARIES} ${OPENMPT_LIBRARIES} ${LIBCDIO_LIBRARIES} cdio_cdda cdio_paranoia pthread)
 endif()
 
 add_executable(${PROJECT_NAME} WIN32 ${SOURCES} ${HEADERS})

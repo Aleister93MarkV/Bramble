@@ -15,6 +15,12 @@
 #include <libopenmpt/libopenmpt_version.h>
 #endif
 
+#ifdef WITH_CDIO
+#include <cdio/cdio.h>
+#include <cdio/paranoia/cdda.h>
+#include <cdio/paranoia/paranoia.h>
+#endif
+
 #define CIRCULAR_BUFFER_FRAMES 131072
 
 struct AudioEngine::Impl {
@@ -25,6 +31,17 @@ struct AudioEngine::Impl {
     
 #ifdef WITH_OPENMPT
     std::unique_ptr<openmpt::module> openmptModule;
+#endif
+
+#ifdef WITH_CDIO
+    CdIo_t* cdio = nullptr;
+    cdrom_drive_t* cddaDrive = nullptr;
+    cdrom_paranoia_t* cddaParanoia = nullptr;
+    int cddaFirstTrack = 0;
+    int cddaLastTrack = 0;
+    int cddaCurrentSector = 0;
+    int cddaFirstSector = 0;
+    int cddaTotalSectors = 0;
 #endif
 
     ma_device device;
@@ -48,6 +65,9 @@ struct AudioEngine::Impl {
     enum class DecoderType {
         SNDFILE,
         OPENMPT,
+#ifdef WITH_CDIO
+        CDDA,
+#endif
         UNKNOWN
     } decoderType = DecoderType::UNKNOWN;
 };
@@ -80,6 +100,17 @@ void AudioEngine::cleanupDecoder() {
     pImpl->openmptModule.reset();
 #endif
     
+#ifdef WITH_CDIO
+    if (pImpl->cddaDrive) {
+        cdio_cddap_close(pImpl->cddaDrive);
+        pImpl->cddaDrive = nullptr;
+    }
+    if (pImpl->cdio) {
+        cdio_destroy(pImpl->cdio);
+        pImpl->cdio = nullptr;
+    }
+#endif
+    
     if (pImpl->sndFile) {
         sf_close(pImpl->sndFile);
         pImpl->sndFile = nullptr;
@@ -100,11 +131,27 @@ std::string toLower(const std::string& s) {
 }
 
 bool AudioEngine::loadFile(const std::string& path) {
+    fprintf(stderr, "CDDA: loadFile called with: %s\n", path.c_str());
     stop();
+    fprintf(stderr, "CDDA: stop() done\n");
     cleanupDecoder();
+    fprintf(stderr, "CDDA: cleanupDecoder() done\n");
     
-    std::string ext = path.substr(path.find_last_of('.') + 1);
-    ext = toLower(ext);
+    if (path.find("/dev/") == 0) {
+#ifdef WITH_CDIO
+        bool result = loadCDDA(path);
+        fprintf(stderr, "CDDA: loadCDDA returned %d\n", result);
+        return result;
+#else
+        return false;
+#endif
+    }
+    
+    std::string ext;
+    if (path.find('.') != std::string::npos) {
+        ext = path.substr(path.find_last_of('.') + 1);
+        ext = toLower(ext);
+    }
     
     if (ext == "mod" || ext == "xm" || ext == "s3m" || ext == "it" || ext == "669" || 
         ext == "pat" || ext == "mts" || ext == "dbm" || ext == "mptm" || ext == "rt" ||
@@ -167,7 +214,85 @@ bool AudioEngine::loadOpenMPT(const std::string& path) {
 }
 #endif
 
+#ifdef WITH_CDIO
+bool AudioEngine::loadCDDA(const std::string& path) {
+    fprintf(stderr, "CDDA: Trying to open %s\n", path.c_str());
+    
+    std::string realPath = path;
+    if (path == "/dev/cdrom") {
+        char buf[256] = {0};
+        ssize_t len = readlink("/dev/cdrom", buf, sizeof(buf) - 1);
+        if (len > 0) {
+            buf[len] = '\0';
+            realPath = buf;
+        } else {
+            realPath = "/dev/sr0";
+        }
+    }
+    
+    fprintf(stderr, "CDDA: Using path %s\n", realPath.c_str());
+    
+    pImpl->cddaDrive = cdio_cddap_find_a_cdrom(2, NULL);
+    if (!pImpl->cddaDrive) {
+        fprintf(stderr, "CDDA: cdio_cddap_find_a_cdrom failed\n");
+        return false;
+    }
+    fprintf(stderr, "CDDA: Found drive %p\n", (void*)pImpl->cddaDrive);
+    
+    int r = cdio_cddap_open(pImpl->cddaDrive);
+    if (r != 0) {
+        fprintf(stderr, "CDDA: cdio_cddap_open failed with %d\n", r);
+        cdio_cddap_close(pImpl->cddaDrive);
+        pImpl->cddaDrive = nullptr;
+        return false;
+    }
+    fprintf(stderr, "CDDA: Drive opened\n");
+    
+    pImpl->cdio = cdio_open(realPath.c_str(), DRIVER_UNKNOWN);
+    
+    pImpl->cddaFirstTrack = cdio_cddap_track_firstsector(pImpl->cddaDrive, 0);
+    pImpl->cddaLastTrack = cdio_cddap_tracks(pImpl->cddaDrive);
+    fprintf(stderr, "CDDA: Tracks=%d\n", pImpl->cddaLastTrack);
+    
+    pImpl->cddaFirstSector = cdio_get_track_lsn(pImpl->cdio, cdio_get_first_track_num(pImpl->cdio));
+    
+    pImpl->cddaTotalSectors = 0;
+    for (int i = 0; i < pImpl->cddaLastTrack; ++i) {
+        lsn_t first = cdio_get_track_lsn(pImpl->cdio, i + 1);
+        lsn_t last = cdio_get_track_last_lsn(pImpl->cdio, i + 1);
+        pImpl->cddaTotalSectors += (last - first + 1);
+    }
+    
+    pImpl->sfInfo.samplerate = 44100;
+    pImpl->sfInfo.channels = 2;
+    pImpl->sfInfo.frames = pImpl->cddaTotalSectors;
+    pImpl->cddaCurrentSector = pImpl->cddaFirstSector;
+    
+    pImpl->decoderType = Impl::DecoderType::CDDA;
+    readCDDAMetadata();
+    fprintf(stderr, "CDDA: Load complete, %d sectors\n", pImpl->cddaTotalSectors);
+    return true;
+}
+
+void AudioEngine::readCDDAMetadata() {
+    m_metadata.title = "Audio CD";
+    m_metadata.artist = "Unknown Artist";
+    m_metadata.album = "Audio CD";
+    m_metadata.format = "CDDA";
+    m_metadata.sampleRate = "44100";
+    m_metadata.bitDepth = "16";
+    m_metadata.channels = "2";
+    
+    char trackInfo[256];
+    snprintf(trackInfo, sizeof(trackInfo), "Tracks: %d-%d (%d sectors)", 
+             pImpl->cddaLastTrack, pImpl->cddaFirstTrack, pImpl->cddaTotalSectors);
+    m_metadata.trackNumber = trackInfo;
+}
+#endif
+
 void AudioEngine::decodeLoop() {
+    fprintf(stderr, "CDDA: decodeLoop started\n");
+    fflush(stderr);
     const size_t chunkSize = 4096;
     
     std::vector<float> tempBufferLeft(chunkSize);
@@ -194,6 +319,33 @@ void AudioEngine::decodeLoop() {
             case Impl::DecoderType::OPENMPT:
                 if (pImpl->openmptModule) {
                     framesRead = pImpl->openmptModule->read(48000, chunkSize, tempBufferLeft.data(), tempBufferRight.data());
+                }
+                break;
+#endif
+#ifdef WITH_CDIO
+            case Impl::DecoderType::CDDA:
+                if (pImpl->cddaDrive) {
+                    framesRead = 0;
+                    int16_t buffer[CDIO_CD_FRAMESIZE_RAW];
+                    for (int s = 0; s < 8 && framesRead < (sf_count_t)chunkSize; ++s) {
+                        long n = cdio_cddap_read(pImpl->cddaDrive, buffer, pImpl->cddaCurrentSector, 1);
+                        if (n > 0) {
+                            for (int i = 0; i < 588 && framesRead < (sf_count_t)chunkSize; ++i) {
+                                tempBufferLeft[framesRead] = buffer[i * 2] / 32768.0f;
+                                tempBufferRight[framesRead] = buffer[i * 2 + 1] / 32768.0f;
+                                framesRead++;
+                            }
+                            pImpl->cddaCurrentSector++;
+                            if (pImpl->cddaCurrentSector >= pImpl->cddaFirstSector + pImpl->cddaTotalSectors) {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                    if (framesRead == 0) {
+                        pImpl->fileEnded.store(true, std::memory_order_release);
+                    }
                 }
                 break;
 #endif
@@ -230,6 +382,7 @@ void AudioEngine::decodeLoop() {
 }
 
 void AudioEngine::play() {
+    fprintf(stderr, "CDDA: play() called, decoderType=%d\n", (int)pImpl->decoderType);
     if (!hasValidDecoder()) return;
     
     if (m_isPlaying.load(std::memory_order_acquire)) return;
@@ -267,6 +420,13 @@ void AudioEngine::play() {
         case Impl::DecoderType::OPENMPT:
             if (pImpl->openmptModule) {
                 pImpl->openmptModule->set_position_seconds(startPos / (double)pImpl->sfInfo.samplerate);
+            }
+            break;
+#endif
+#ifdef WITH_CDIO
+        case Impl::DecoderType::CDDA:
+            if (pImpl->cddaParanoia) {
+                paranoia_seek(pImpl->cddaParanoia, pImpl->cddaCurrentSector, SEEK_SET);
             }
             break;
 #endif
@@ -365,6 +525,18 @@ void AudioEngine::setPosition(float seconds) {
         case Impl::DecoderType::OPENMPT:
             if (pImpl->openmptModule) {
                 pImpl->openmptModule->set_position_seconds(frame / (double)pImpl->sfInfo.samplerate);
+            }
+            break;
+#endif
+#ifdef WITH_CDIO
+        case Impl::DecoderType::CDDA:
+            if (pImpl->cddaParanoia && seconds < pImpl->sfInfo.frames / 44100.0) {
+                lsn_t targetSector = (lsn_t)(seconds * 75);
+                if (targetSector >= pImpl->cddaFirstSector && 
+                    targetSector < pImpl->cddaFirstSector + pImpl->cddaTotalSectors) {
+                    pImpl->cddaCurrentSector = targetSector;
+                    paranoia_seek(pImpl->cddaParanoia, targetSector, SEEK_SET);
+                }
             }
             break;
 #endif
@@ -628,3 +800,40 @@ std::string AudioEngine::getFormattedMetadata() const {
     }
     return result;
 }
+
+#ifdef WITH_CDIO
+int AudioEngine::getCDTrackCount() const {
+    if (pImpl->decoderType != Impl::DecoderType::CDDA) return 0;
+    return pImpl->cddaLastTrack - pImpl->cddaFirstTrack + 1;
+}
+
+std::string AudioEngine::getCDTrackInfo(int track) const {
+    if (pImpl->decoderType != Impl::DecoderType::CDDA) return "";
+    if (track < 0 || track >= getCDTrackCount()) return "";
+    
+    int trackNum = pImpl->cddaFirstTrack + track;
+    lsn_t firstLsn = cdio_get_track_lsn(pImpl->cdio, trackNum);
+    lsn_t lastLsn = cdio_get_track_last_lsn(pImpl->cdio, trackNum);
+    int sectors = lastLsn - firstLsn + 1;
+    int seconds = sectors / 75;
+    
+    return "Track " + std::to_string(trackNum) + ": " + std::to_string(seconds / 60) + ":" + std::to_string(seconds % 60);
+}
+
+void AudioEngine::setCDTrack(int trackIndex) {
+    if (pImpl->decoderType != Impl::DecoderType::CDDA) return;
+    
+    int trackCount = getCDTrackCount();
+    if (trackIndex < 0 || trackIndex >= trackCount) return;
+    
+    int trackNum = pImpl->cddaFirstTrack + trackIndex;
+    pImpl->cddaCurrentSector = cdio_get_track_lsn(pImpl->cdio, trackNum);
+    
+    bool wasPlaying = m_isPlaying.load(std::memory_order_acquire);
+    stop();
+    
+    if (wasPlaying) {
+        play();
+    }
+}
+#endif

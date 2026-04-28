@@ -13,6 +13,7 @@
 #include "foobar2k_sdk/dsp_manager.hpp"
 
 #define WITH_OPENMPT
+#define WITH_CDIO
 
 struct AudioMetadata {
     std::string title;
@@ -68,6 +69,17 @@ private:
 #ifdef WITH_OPENMPT
     bool loadOpenMPT(const std::string& path);
     void readOpenMPTMetadata();
+#endif
+
+#ifdef WITH_CDIO
+    bool loadCDDA(const std::string& path);
+    void readCDDAMetadata();
+    
+public:
+    int getCDTrackCount() const;
+    std::string getCDTrackInfo(int track) const;
+    void setCDTrack(int trackIndex);
+private:
 #endif
 
     struct Impl;

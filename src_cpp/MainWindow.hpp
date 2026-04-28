@@ -10,6 +10,9 @@
 #include <QMenu>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
+#include <QListWidget>
+#include <QFileSystemModel>
+#include <QTreeView>
 #include <memory>
 #include "AudioEngine.hpp"
 #include "EqualizerWindow.hpp"
@@ -34,6 +37,10 @@ private slots:
     void toggleSkin();
     void updateUI();
     void loadAlbumCover(const QString& audioPath);
+    void onFileDoubleClicked(const QModelIndex& index);
+    void onTrackDoubleClicked(QListWidgetItem* item);
+    void refreshFileList(const QString& path);
+    void setCDTrackList(const QStringList& tracks);
 
 private:
     void loadAudioFile(const QString& fileName);
@@ -63,8 +70,14 @@ private:
     QSlider* m_sliderVol;
     QTimer* m_timer;
     QNetworkAccessManager* m_networkManager;
-
+    QListWidget* m_fileList;
+    QFileSystemModel* m_fileModel;
+    QTreeView* m_fileBrowser;
+    QString m_currentPath;
+    QStringList m_audioFiles;
+    int m_currentTrackIndex = -1;
     QString m_currentFilePath;
+    QString m_currentCDDevice;
     bool m_isDraggingSeek = false;
 };
 

@@ -157,15 +157,16 @@ void MainWindow::setCoverImage(const QString& coverPath) {
 }
 
 MainWindow::MainWindow(AudioEngine* engine, QWidget *parent)
-    : QWidget(parent), m_engine(engine)
+    : QWidget(parent), m_engine(engine), m_currentTrackIndex(-1)
 {
     m_eqWin = std::make_unique<EqualizerWindow>(engine);
     m_visWin = std::make_unique<VisualizerWindow>(engine);
     m_skinWin = std::make_unique<SkinWindow>(this);
     m_networkManager = new QNetworkAccessManager(this);
+    m_fileModel = new QFileSystemModel(this);
 
     setWindowTitle("Bramble Audio Player");
-    resize(550, 300);
+    resize(750, 400);
     setStyleSheet(SkinManager::getMainWindowStyle());
 
     QHBoxLayout* mainLayout = new QHBoxLayout(this);
@@ -178,7 +179,6 @@ MainWindow::MainWindow(AudioEngine* engine, QWidget *parent)
     m_lblInfo->setMinimumHeight(100);
     leftLayout->addWidget(m_lblInfo);
 
-    // Botões
     QHBoxLayout* btnLayout = new QHBoxLayout();
     m_btnOpen = new QPushButton("OPEN", this);
     m_btnPlay = new QPushButton("PLAY", this);
@@ -193,11 +193,9 @@ MainWindow::MainWindow(AudioEngine* engine, QWidget *parent)
     btnLayout->addWidget(m_btnSkin);
     leftLayout->addLayout(btnLayout);
 
-    // Seek Bar
     m_sliderSeek = new QSlider(Qt::Horizontal, this);
     leftLayout->addWidget(m_sliderSeek);
 
-    // Volume Layout
     QHBoxLayout* volLayout = new QHBoxLayout();
     QLabel* volLabel = new QLabel("Vol:", this);
     m_sliderVol = new QSlider(Qt::Horizontal, this);
@@ -209,21 +207,48 @@ MainWindow::MainWindow(AudioEngine* engine, QWidget *parent)
 
     mainLayout->addLayout(leftLayout);
 
-    // Album Cover
+    QVBoxLayout* rightLayout = new QVBoxLayout();
+
+    QLabel* browserLabel = new QLabel("File Browser", this);
+    browserLabel->setAlignment(Qt::AlignCenter);
+    browserLabel->setStyleSheet("QLabel { font-weight: bold; color: #0af; }");
+    rightLayout->addWidget(browserLabel);
+
+    m_fileBrowser = new QTreeView(this);
+    m_fileModel->setRootPath(QDir::homePath());
+    m_fileBrowser->setModel(m_fileModel);
+    m_fileBrowser->setRootIndex(m_fileModel->index(QDir::homePath()));
+    m_fileBrowser->setAnimated(false);
+    m_fileBrowser->setIndentation(20);
+    m_fileBrowser->setSortingEnabled(true);
+    m_fileBrowser->setColumnWidth(0, 200);
+    m_fileBrowser->setMinimumWidth(220);
+    rightLayout->addWidget(m_fileBrowser);
+
+    QLabel* playlistLabel = new QLabel("Playlist / CD Tracks", this);
+    playlistLabel->setAlignment(Qt::AlignCenter);
+    playlistLabel->setStyleSheet("QLabel { font-weight: bold; color: #0af; }");
+    rightLayout->addWidget(playlistLabel);
+
+    m_fileList = new QListWidget(this);
+    m_fileList->setMinimumWidth(220);
+    m_fileList->setMaximumHeight(120);
+    rightLayout->addWidget(m_fileList);
+
+    mainLayout->addLayout(rightLayout);
+
     m_lblCover = new QLabel(this);
-    m_lblCover->setFixedSize(150, 150);
+    m_lblCover->setFixedSize(120, 120);
     m_lblCover->setAlignment(Qt::AlignCenter);
     m_lblCover->setText("No Cover");
-    m_lblCover->setStyleSheet("QLabel { background-color: #222; color: #888; border: 2px solid #444; font-size: 12px; }");
-    mainLayout->addWidget(m_lblCover);
+    m_lblCover->setStyleSheet("QLabel { background-color: #222; color: #888; border: 2px solid #444; font-size: 10px; }");
+    leftLayout->addWidget(m_lblCover);
 
-    // Time label below cover
     m_lblTime = new QLabel("0:00/0:00", this);
     m_lblTime->setAlignment(Qt::AlignCenter);
     m_lblTime->setStyleSheet("QLabel { color: #ccc; font-size: 12px; font-weight: bold; }");
-    mainLayout->addWidget(m_lblTime);
+    leftLayout->addWidget(m_lblTime);
 
-    // Connect signals
     connect(this, &MainWindow::coverDownloaded, this, &MainWindow::setCoverImage);
     m_btnOpen->setContextMenuPolicy(Qt::ActionsContextMenu);
     
@@ -261,29 +286,18 @@ MainWindow::MainWindow(AudioEngine* engine, QWidget *parent)
         m_engine->setPosition((float)m_sliderSeek->value());
     });
 
+    connect(m_fileBrowser, &QTreeView::doubleClicked, this, &MainWindow::onFileDoubleClicked);
+    connect(m_fileList, &QListWidget::itemDoubleClicked, this, &MainWindow::onTrackDoubleClicked);
+
     m_timer = new QTimer(this);
     connect(m_timer, &QTimer::timeout, this, &MainWindow::updateUI);
-    m_timer->start(50); // 20fps for UI updates
+    m_timer->start(50);
 }
 
 void MainWindow::openFileDialog() {
     QString fileName = QFileDialog::getOpenFileName(this, "Open Audio File", "", "Audio Files (*.mp3 *.wav *.flac *.mod *.xm *.s3m *.it);;All Files (*.*)");
     if (!fileName.isEmpty()) {
         loadAudioFile(fileName);
-    }
-}
-
-void MainWindow::openFolderDialog() {
-    QString dirName = QFileDialog::getExistingDirectory(this, "Open Music Folder", "", QFileDialog::ShowDirsOnly);
-    if (!dirName.isEmpty()) {
-        QString filters = "*.mp3 *.wav *.flac *.mod *.xm *.s3m *.it";
-        QDir dir(dirName);
-        QStringList files = dir.entryList(filters.split(" "), QDir::Files);
-        if (!files.isEmpty()) {
-            loadAudioFile(dirName + "/" + files.first());
-        } else {
-            m_lblInfo->setText("No audio files in folder");
-        }
     }
 }
 
@@ -305,34 +319,67 @@ void MainWindow::playAudioCD() {
     
     if (cdroms.isEmpty()) {
         m_lblInfo->setText("No CD-ROM found");
+        m_fileList->clear();
+        m_fileList->addItem("(No CD-ROM detected)");
         return;
     }
 
-    QStringList items;
-    for (const QString& cd : cdroms) {
-        items.append(cd);
+    QString selectedCD;
+    if (cdroms.size() == 1) {
+        selectedCD = cdroms.first();
+    } else {
+        bool found = false;
+        for (const QString& cd : cdroms) {
+            QFile file(cd);
+            if (file.open(QFile::ReadOnly)) {
+                selectedCD = cd;
+                file.close();
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            selectedCD = cdroms.first();
+        }
     }
 
-    if (items.size() == 1) {
-        loadAudioFile(items.first());
-    } else {
-        QString selected = items.first();
-        for (const QString& cd : cdroms) {
-            selected = cd;
-            break;
+    m_lblInfo->setText("CD-ROM: " + selectedCD);
+    m_currentCDDevice = selectedCD;
+    loadAudioFile(selectedCD);
+    loadAlbumCover(selectedCD);
+    
+    QStringList trackList;
+    int trackCount = m_engine->getCDTrackCount();
+    if (trackCount > 0) {
+        for (int i = 0; i < trackCount; ++i) {
+            QString info = QString::fromStdString(m_engine->getCDTrackInfo(i));
+            trackList.append(info.isEmpty() ? QString("Track %1").arg(i + 1) : info);
         }
-        loadAudioFile(selected);
+    } else {
+        for (int i = 1; i <= 20; ++i) {
+            trackList.append(QString("Track %1").arg(i));
+        }
     }
+    setCDTrackList(trackList);
 }
 
 void MainWindow::loadAudioFile(const QString& fileName) {
-    if (fileName.isEmpty()) return;
+    if (fileName.isEmpty()) {
+        m_lblInfo->setText("Error: Empty filename");
+        return;
+    }
 
-    if (m_engine->loadFile(fileName.toStdString())) {
+    qDebug() << "Loading file:" << fileName;
+    bool loaded = m_engine->loadFile(fileName.toStdString());
+    qDebug() << "Load result:" << loaded;
+    
+    if (loaded) {
         QFileInfo fileInfo(fileName);
         m_lblInfo->setText(QString::fromStdString(m_engine->getFormattedMetadata()));
         m_sliderSeek->setRange(0, (int)m_engine->getDuration());
+        qDebug() << "Calling play()";
         m_engine->play();
+        qDebug() << "play() returned";
         m_btnPlay->setText("PAUSE");
         loadAlbumCover(fileName);
     } else {
@@ -407,5 +454,79 @@ void MainWindow::updateUI() {
         } else if (m_engine->isPlaying() && !m_isDraggingSeek) {
             m_sliderSeek->setValue((int)position);
         }
+    }
+}
+
+void MainWindow::onFileDoubleClicked(const QModelIndex& index) {
+    QString path = m_fileModel->filePath(index);
+    QFileInfo info(path);
+    
+    if (info.isDir()) {
+        m_fileBrowser->setRootIndex(index);
+        refreshFileList(path);
+    } else {
+        QStringList audioExts = {"mp3", "wav", "flac", "ogg", "m4a", "aac", "wma", "mod", "xm", "s3m", "it"};
+        if (audioExts.contains(info.suffix().toLower())) {
+            loadAudioFile(path);
+            loadAlbumCover(path);
+        }
+    }
+}
+
+void MainWindow::onTrackDoubleClicked(QListWidgetItem* item) {
+    if (!item) return;
+    int index = m_fileList->row(item);
+    
+    if (index >= 0 && index < m_audioFiles.size()) {
+        QString data = m_audioFiles[index];
+        
+        if (!data.startsWith("/")) {
+            int trackIndex = data.toInt();
+            m_engine->setCDTrack(trackIndex);
+            m_currentTrackIndex = index;
+        } else {
+            loadAudioFile(data);
+            loadAlbumCover(data);
+            m_currentTrackIndex = index;
+        }
+    }
+}
+
+void MainWindow::refreshFileList(const QString& path) {
+    m_currentPath = path;
+    m_audioFiles.clear();
+    m_fileList->clear();
+    
+    QDir dir(path);
+    QStringList filters;
+    filters << "*.mp3" << "*.wav" << "*.flac" << "*.ogg" << "*.m4a" << "*.aac" 
+            << "*.wma" << "*.mod" << "*.xm" << "*.s3m" << "*.it" << "*.ape" << "*.opus";
+    
+    QFileInfoList files = dir.entryInfoList(filters, QDir::Files | QDir::Readable);
+    for (const QFileInfo& file : files) {
+        m_audioFiles.append(file.filePath());
+        m_fileList->addItem(file.fileName());
+    }
+    
+    if (m_audioFiles.isEmpty()) {
+        m_fileList->addItem("(No audio files)");
+    }
+}
+
+void MainWindow::setCDTrackList(const QStringList& tracks) {
+    m_audioFiles.clear();
+    m_fileList->clear();
+    for (int i = 0; i < tracks.size(); ++i) {
+        m_audioFiles.append(QString::number(i));
+        m_fileList->addItem(QString("Track %1 - %2").arg(i + 1).arg(tracks[i]));
+    }
+}
+
+void MainWindow::openFolderDialog() {
+    QString folder = QFileDialog::getExistingDirectory(this, "Open Folder", QDir::homePath());
+    if (!folder.isEmpty()) {
+        QModelIndex idx = m_fileModel->index(folder);
+        m_fileBrowser->setRootIndex(idx);
+        refreshFileList(folder);
     }
 }
