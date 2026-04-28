@@ -1,12 +1,13 @@
 #!/usr/bin/make -f
 
 %:
-	dh $@ --with=qmake6
+	dh $@ --with=cmake
 
 override_dh_auto_build:
-	dh_auto_build
-	# Additional build if needed
+	rm -rf build
+	mkdir build
+	cd build && cmake .. -DCMAKE_BUILD_TYPE=Release
+	cd build && cmake --build . -j$(nproc)
 
-override_dh_install:
-	# Install binary
-	dh_install -p crystal-audio-player --fail-missing
+override_dh_auto_install:
+	dh_auto_install --prefix=debian/bramble-player
