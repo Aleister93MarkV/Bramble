@@ -225,7 +225,22 @@ MainWindow::MainWindow(AudioEngine* engine, QWidget *parent)
 
     // Connect signals
     connect(this, &MainWindow::coverDownloaded, this, &MainWindow::setCoverImage);
-    connect(m_btnOpen, &QPushButton::clicked, this, &MainWindow::openFileDialog);
+    m_btnOpen->setContextMenuPolicy(Qt::ActionsContextMenu);
+    
+    m_openMenu = new QMenu(this);
+    QAction* actFile = new QAction("Open File...", this);
+    QAction* actFolder = new QAction("Open Folder...", this);
+    QAction* actCD = new QAction("Play Audio CD", this);
+    
+    connect(actFile, &QAction::triggered, this, &MainWindow::openFileDialog);
+    connect(actFolder, &QAction::triggered, this, &MainWindow::openFolderDialog);
+    connect(actCD, &QAction::triggered, this, &MainWindow::playAudioCD);
+    
+    m_openMenu->addAction(actFile);
+    m_openMenu->addAction(actFolder);
+    m_openMenu->addAction(actCD);
+    m_btnOpen->setMenu(m_openMenu);
+    
     connect(m_btnPlay, &QPushButton::clicked, this, &MainWindow::togglePlayPause);
     connect(m_btnEQ, &QPushButton::clicked, this, &MainWindow::toggleEQ);
     connect(m_btnVis, &QPushButton::clicked, this, &MainWindow::toggleVis);
@@ -254,14 +269,74 @@ MainWindow::MainWindow(AudioEngine* engine, QWidget *parent)
 void MainWindow::openFileDialog() {
     QString fileName = QFileDialog::getOpenFileName(this, "Open Audio File", "", "Audio Files (*.mp3 *.wav *.flac *.mod *.xm *.s3m *.it);;All Files (*.*)");
     if (!fileName.isEmpty()) {
-        if (m_engine->loadFile(fileName.toStdString())) {
-            QFileInfo fileInfo(fileName);
-            m_lblInfo->setText(QString::fromStdString(m_engine->getFormattedMetadata()));
-            m_sliderSeek->setRange(0, (int)m_engine->getDuration());
-            m_engine->play();
-            m_btnPlay->setText("PAUSE");
-            loadAlbumCover(fileName);
+        loadAudioFile(fileName);
+    }
+}
+
+void MainWindow::openFolderDialog() {
+    QString dirName = QFileDialog::getExistingDirectory(this, "Open Music Folder", "", QFileDialog::ShowDirsOnly);
+    if (!dirName.isEmpty()) {
+        QString filters = "*.mp3 *.wav *.flac *.mod *.xm *.s3m *.it";
+        QDir dir(dirName);
+        QStringList files = dir.entryList(filters.split(" "), QDir::Files);
+        if (!files.isEmpty()) {
+            loadAudioFile(dirName + "/" + files.first());
+        } else {
+            m_lblInfo->setText("No audio files in folder");
         }
+    }
+}
+
+QStringList MainWindow::findAvailableCDROM() {
+    QStringList cdrives;
+    QDir dir("/dev");
+    QFileInfoList devices = dir.entryInfoList(QDir::System);
+    for (const QFileInfo& info : devices) {
+        QString name = info.fileName();
+        if (name.startsWith("sr") || name.startsWith("scd") || name.contains("cdrom")) {
+            cdrives.append("/dev/" + name);
+        }
+    }
+    return cdrives;
+}
+
+void MainWindow::playAudioCD() {
+    QStringList cdroms = findAvailableCDROM();
+    
+    if (cdroms.isEmpty()) {
+        m_lblInfo->setText("No CD-ROM found");
+        return;
+    }
+
+    QStringList items;
+    for (const QString& cd : cdroms) {
+        items.append(cd);
+    }
+
+    if (items.size() == 1) {
+        loadAudioFile(items.first());
+    } else {
+        QString selected = items.first();
+        for (const QString& cd : cdroms) {
+            selected = cd;
+            break;
+        }
+        loadAudioFile(selected);
+    }
+}
+
+void MainWindow::loadAudioFile(const QString& fileName) {
+    if (fileName.isEmpty()) return;
+
+    if (m_engine->loadFile(fileName.toStdString())) {
+        QFileInfo fileInfo(fileName);
+        m_lblInfo->setText(QString::fromStdString(m_engine->getFormattedMetadata()));
+        m_sliderSeek->setRange(0, (int)m_engine->getDuration());
+        m_engine->play();
+        m_btnPlay->setText("PAUSE");
+        loadAlbumCover(fileName);
+    } else {
+        m_lblInfo->setText("Error loading file");
     }
 }
 

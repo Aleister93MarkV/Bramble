@@ -7,6 +7,7 @@
 #include <QSlider>
 #include <QTimer>
 #include <QString>
+#include <QMenu>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <memory>
@@ -25,6 +26,8 @@ public:
 
 private slots:
     void openFileDialog();
+    void openFolderDialog();
+    void playAudioCD();
     void togglePlayPause();
     void toggleEQ();
     void toggleVis();
@@ -33,6 +36,8 @@ private slots:
     void loadAlbumCover(const QString& audioPath);
 
 private:
+    void loadAudioFile(const QString& fileName);
+    QStringList findAvailableCDROM();
     void searchAndDownloadCover(const QString& artist, const QString& album, const QString& basePath);
     void downloadCoverFromReleaseId(const QString& releaseId, const QString& basePath);
     void saveCoverToFile(QNetworkReply* reply, const QString& basePath);
@@ -50,6 +55,7 @@ private:
     QPushButton* m_btnEQ;
     QPushButton* m_btnVis;
     QPushButton* m_btnSkin;
+    QMenu* m_openMenu;
     QLabel* m_lblInfo;
     QLabel* m_lblCover;
     QLabel* m_lblTime;
