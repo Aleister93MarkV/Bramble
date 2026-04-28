@@ -7,21 +7,112 @@
 #include <QMouseEvent>
 #include <QDir>
 #include <QDebug>
+#include <QNetworkAccessManager>
+#include <QNetworkRequest>
+#include <QNetworkReply>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+
+void MainWindow::searchAndDownloadCover(const QString& artist, const QString& album, const QString& basePath) {
+    if (artist.isEmpty() && album.isEmpty()) return;
+
+    QString query = "https://musicbrainz.org/ws/2/release/?query=";
+    QString searchTerm;
+
+    if (!album.isEmpty()) {
+        searchTerm += "release:\"" + album + "\"";
+    }
+    if (!artist.isEmpty()) {
+        if (!searchTerm.isEmpty()) searchTerm += "+AND+";
+        searchTerm += "artist:\"" + artist + "\"";
+    }
+
+    query += searchTerm + "&fmt=json&limit=1";
+
+    QUrl url(query);
+    QNetworkRequest request;
+    request.setUrl(url);
+    request.setHeader(QNetworkRequest::KnownHeaders::UserAgentHeader, "BrambleAudioPlayer/1.0 (contact@bramble.player)");
+
+    QNetworkReply* reply = m_networkManager->get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, basePath, album, reply]() {
+        reply->deleteLater();
+
+        if (reply->error() != QNetworkReply::NoError) {
+            return;
+        }
+
+        QByteArray data = reply->readAll();
+        QJsonDocument doc = QJsonDocument::fromJson(data);
+        if (!doc.isObject()) return;
+
+        QJsonObject root = doc.object();
+        QJsonArray releases = root["releases"].toArray();
+        if (releases.isEmpty()) return;
+
+        QString releaseId = releases[0].toObject()["id"].toString();
+        if (releaseId.isEmpty()) return;
+
+        downloadCoverFromReleaseId(releaseId, basePath);
+    });
+}
+
+void MainWindow::downloadCoverFromReleaseId(const QString& releaseId, const QString& basePath) {
+    QString coverUrl = "https://coverartarchive.org/release/" + releaseId + "/front-500";
+
+    QUrl url(coverUrl);
+    QNetworkRequest request;
+    request.setUrl(url);
+    request.setHeader(QNetworkRequest::KnownHeaders::UserAgentHeader, "BrambleAudioPlayer/1.0 (contact@bramble.player)");
+
+    QNetworkReply* reply = m_networkManager->get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, basePath, reply]() {
+        reply->deleteLater();
+
+        if (reply->error() != QNetworkReply::NoError) {
+            return;
+        }
+
+        saveCoverToFile(reply, basePath);
+    });
+}
+
+void MainWindow::saveCoverToFile(QNetworkReply* reply, const QString& basePath) {
+    QByteArray imageData = reply->readAll();
+    if (imageData.isEmpty()) return;
+
+    QStringList extensions = {"jpg", "png"};
+    QStringList names = {"cover", "folder", "album", "front", "000"};
+
+    for (const QString& name : names) {
+        for (const QString& ext : extensions) {
+            QString filePath = basePath + "/" + name + "." + ext;
+            QFile file(filePath);
+            if (file.open(QIODevice::WriteOnly)) {
+                file.write(imageData);
+                file.close();
+                setCoverImage(filePath);
+                return;
+            }
+        }
+    }
+}
 
 void MainWindow::loadAlbumCover(const QString& audioPath) {
     if (audioPath.isEmpty()) return;
-    
+
     m_currentFilePath = audioPath;
-    
+
     QString basePath = audioPath.left(audioPath.lastIndexOf('/'));
     QString fileName = audioPath.mid(audioPath.lastIndexOf('/') + 1);
     QString baseName = fileName.section('.', 0, 0);
-    
+
     QStringList imageExtensions = {"jpg", "jpeg", "png", "gif", "bmp", "webp"};
     QString coverPath;
-    
+
     QStringList coverNames = {"cover", "folder", "album", "front", "000", "frontcover", "albumart"};
-    
+
     for (const QString& ext : imageExtensions) {
         for (const QString& name : coverNames) {
             QString imgPath = basePath + "/" + name + "." + ext;
@@ -31,46 +122,56 @@ void MainWindow::loadAlbumCover(const QString& audioPath) {
             }
         }
         if (!coverPath.isEmpty()) break;
-        
+
         QString imgPath2 = basePath + "/" + baseName + "." + ext;
         if (QFile::exists(imgPath2)) {
             coverPath = imgPath2;
             break;
         }
     }
-    
+
     if (coverPath.isEmpty() || !QFile::exists(coverPath)) {
-        m_lblCover->setText("No Cover");
+        m_lblCover->setText("Downloading...");
         m_lblCover->setStyleSheet("QLabel { background-color: #222; color: #888; font-size: 10px; }");
+
+        AudioMetadata meta = m_engine->getMetadata();
+        QString artist = QString::fromStdString(meta.artist);
+        QString titleOrAlbum = QString::fromStdString(meta.title.empty() ? meta.album : meta.title);
+        searchAndDownloadCover(artist, titleOrAlbum, basePath);
     } else {
-        QPixmap pixmap(coverPath);
-        if (!pixmap.isNull()) {
-            pixmap = pixmap.scaled(150, 150, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-            m_lblCover->setPixmap(pixmap);
-            m_lblCover->setText("");
-            m_lblCover->setStyleSheet("");
-        } else {
-            m_lblCover->setText("No Cover");
-            m_lblCover->setStyleSheet("QLabel { background-color: #222; color: #888; font-size: 10px; }");
-        }
+        setCoverImage(coverPath);
     }
 }
 
-MainWindow::MainWindow(AudioEngine* engine, QWidget *parent) 
-    : QWidget(parent), m_engine(engine) 
+void MainWindow::setCoverImage(const QString& coverPath) {
+    QPixmap pixmap(coverPath);
+    if (!pixmap.isNull()) {
+        pixmap = pixmap.scaled(150, 150, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        m_lblCover->setPixmap(pixmap);
+        m_lblCover->setText("");
+        m_lblCover->setStyleSheet("");
+    } else {
+        m_lblCover->setText("No Cover");
+        m_lblCover->setStyleSheet("QLabel { background-color: #222; color: #888; font-size: 10px; }");
+    }
+}
+
+MainWindow::MainWindow(AudioEngine* engine, QWidget *parent)
+    : QWidget(parent), m_engine(engine)
 {
     m_eqWin = std::make_unique<EqualizerWindow>(engine);
     m_visWin = std::make_unique<VisualizerWindow>(engine);
     m_skinWin = std::make_unique<SkinWindow>(this);
+    m_networkManager = new QNetworkAccessManager(this);
 
     setWindowTitle("Bramble Audio Player");
     resize(550, 300);
     setStyleSheet(SkinManager::getMainWindowStyle());
 
     QHBoxLayout* mainLayout = new QHBoxLayout(this);
-    
+
     QVBoxLayout* leftLayout = new QVBoxLayout();
-    
+
     m_lblInfo = new QLabel("BRAMBLE AUDIO v1.0", this);
     m_lblInfo->setObjectName("DisplayLabel");
     m_lblInfo->setAlignment(Qt::AlignCenter);
@@ -105,9 +206,9 @@ MainWindow::MainWindow(AudioEngine* engine, QWidget *parent)
     volLayout->addWidget(volLabel);
     volLayout->addWidget(m_sliderVol);
     leftLayout->addLayout(volLayout);
-    
+
     mainLayout->addLayout(leftLayout);
-    
+
     // Album Cover
     m_lblCover = new QLabel(this);
     m_lblCover->setFixedSize(150, 150);
@@ -123,6 +224,7 @@ MainWindow::MainWindow(AudioEngine* engine, QWidget *parent)
     mainLayout->addWidget(m_lblTime);
 
     // Connect signals
+    connect(this, &MainWindow::coverDownloaded, this, &MainWindow::setCoverImage);
     connect(m_btnOpen, &QPushButton::clicked, this, &MainWindow::openFileDialog);
     connect(m_btnPlay, &QPushButton::clicked, this, &MainWindow::togglePlayPause);
     connect(m_btnEQ, &QPushButton::clicked, this, &MainWindow::toggleEQ);

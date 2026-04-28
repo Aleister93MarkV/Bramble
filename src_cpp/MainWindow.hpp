@@ -7,6 +7,8 @@
 #include <QSlider>
 #include <QTimer>
 #include <QString>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
 #include <memory>
 #include "AudioEngine.hpp"
 #include "EqualizerWindow.hpp"
@@ -15,6 +17,8 @@
 
 class MainWindow : public QWidget {
     Q_OBJECT
+signals:
+    void coverDownloaded(const QString& coverPath);
 public:
     explicit MainWindow(AudioEngine* engine, QWidget *parent = nullptr);
     ~MainWindow() override = default;
@@ -29,13 +33,17 @@ private slots:
     void loadAlbumCover(const QString& audioPath);
 
 private:
+    void searchAndDownloadCover(const QString& artist, const QString& album, const QString& basePath);
+    void downloadCoverFromReleaseId(const QString& releaseId, const QString& basePath);
+    void saveCoverToFile(QNetworkReply* reply, const QString& basePath);
+    void setCoverImage(const QString& coverPath);
     AudioEngine* m_engine;
-    
+
     // Sub-windows
     std::unique_ptr<EqualizerWindow> m_eqWin;
     std::unique_ptr<VisualizerWindow> m_visWin;
     std::unique_ptr<SkinWindow> m_skinWin;
-    
+
     // UI Elements
     QPushButton* m_btnPlay;
     QPushButton* m_btnOpen;
@@ -48,7 +56,8 @@ private:
     QSlider* m_sliderSeek;
     QSlider* m_sliderVol;
     QTimer* m_timer;
-    
+    QNetworkAccessManager* m_networkManager;
+
     QString m_currentFilePath;
     bool m_isDraggingSeek = false;
 };
