@@ -36,12 +36,12 @@ themes["Classic"] = createClassicTheme();
   static Theme createClassicTheme() {
     Theme t;
     t.name = "Classic";
-    t.bgMain = "#242436";
-    t.bgDisplay = "#000014";
-    t.textDigital = "#00FF41";
-    t.accent = "#00F2FF";
-    t.btnFace = "#B4B4BE";
-    t.btnText = "#14141E";
+    t.bgMain = "#1E1E2A";
+    t.bgDisplay = "#0A0A12";
+    t.textDigital = "#33DD66";
+    t.accent = "#22BBCC";
+    t.btnFace = "#8888A0";
+    t.btnText = "#1A1A24";
     return t;
   }
 
@@ -132,24 +132,24 @@ themes["Classic"] = createClassicTheme();
   static Theme createRedFoxTheme() {
     Theme t;
     t.name = "Red Firefox";
-    t.bgMain = "#FF6600";
-    t.bgDisplay = "#331A00";
-    t.textDigital = "#FFFFFF";
-    t.accent = "#FF4400";
-    t.btnFace = "#CC4400";
-    t.btnText = "#FFFFFF";
+    t.bgMain = "#E65C00";
+    t.bgDisplay = "#2A1500";
+    t.textDigital = "#FFD4B8";
+    t.accent = "#CC4400";
+    t.btnFace = "#994433";
+    t.btnText = "#FFE8DC";
     return t;
   }
 
   static Theme createImpulseTrackerTheme() {
     Theme t;
     t.name = "Impulse Tracker";
-    t.bgMain = "#0000AA";      // Classic DOS blue background
-    t.bgDisplay = "#000088";    // Slightly darker blue for display
-    t.textDigital = "#00FFFF";   // Bright cyan digital text
-    t.accent = "#FFFF00";      // Yellow accent (classic IT highlight)
-    t.btnFace = "#AAAAAA";      // Gray button face
-    t.btnText = "#000000";      // Black button text
+    t.bgMain = "#0000AA";
+    t.bgDisplay = "#000066";
+    t.textDigital = "#88FFFF";
+    t.accent = "#FFFF66";
+    t.btnFace = "#8888AA";
+    t.btnText = "#111122";
     return t;
   }
 
@@ -171,9 +171,10 @@ themes["Classic"] = createClassicTheme();
                "QSlider::groove:horizontal { border: 1px solid #999999; "
                "height: 8px; background: %3; margin: 2px 0; }"
                "QSlider::handle:horizontal { background: %6; border: 1px solid "
-               "#5c5c5c; width: 18px; margin: -2px 0; border-radius: 3px; }")
-        .arg(t.bgMain, t.accent, t.bgDisplay, t.textDigital, t.accent,
-             t.btnFace, t.btnText);
+               "#5c5c5c; width: 18px; margin: -2px 0; border-radius: 3px; }"
+               "QSlider::groove:vertical { border: 1px solid #999999; width: 8px; background: %3; margin: 0 2px; }"
+               "QSlider::handle:vertical { background: %6; border: 1px solid #5c5c5c; height: 18px; margin: 0 -2px; border-radius: 3px; }")
+        .arg(t.bgMain).arg(t.accent).arg(t.bgDisplay).arg(t.textDigital).arg(t.accent).arg(t.btnFace).arg(t.btnText);
   }
 
   static QString getEqWindowStyle() {
@@ -182,20 +183,19 @@ themes["Classic"] = createClassicTheme();
                "QWidget { background-color: %1; color: %2; }"
                "QSlider::groove:vertical { border: 1px solid #999999; width: "
                "8px; background: %3; margin: 0 2px; }"
-               "QSlider::handle:vertical { background: %6; border: 1px solid "
+               "QSlider::handle:vertical { background: %4; border: 1px solid "
                "#5c5c5c; height: 18px; margin: 0 -2px; border-radius: 3px; }"
                "QSlider::groove:horizontal { border: 1px solid #999999; "
                "height: 8px; background: %3; margin: 2px 0; }"
-               "QSlider::handle:horizontal { background: %6; border: 1px solid "
+               "QSlider::handle:horizontal { background: %4; border: 1px solid "
                "#5c5c5c; width: 18px; margin: -2px 0; border-radius: 3px; }")
-        .arg(t.bgMain, t.accent, t.bgDisplay, t.textDigital, t.accent,
-             t.btnFace, t.btnText);
+        .arg(t.bgMain).arg(t.accent).arg(t.bgDisplay).arg(t.btnFace);
   }
 
   static QString getVisWindowStyle() {
     Theme t = getThemes().value(getCurrentTheme(), createClassicTheme());
     return QString("QWidget { background-color: %1; color: %2; }")
-        .arg(t.bgMain, t.accent);
+        .arg(t.bgMain).arg(t.accent);
   }
 
 private:

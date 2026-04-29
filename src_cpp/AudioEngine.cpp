@@ -1,6 +1,7 @@
 #define MINIAUDIO_IMPLEMENTATION
 #include "../include/miniaudio.h"
 #include "AudioEngine.hpp"
+#include "MIDIManager.hpp"
 #include <cmath>
 #include <cstring>
 #include <cstddef>
@@ -31,6 +32,14 @@ struct AudioEngine::Impl {
     
 #ifdef WITH_OPENMPT
     std::unique_ptr<openmpt::module> openmptModule;
+#endif
+
+#ifdef WITH_FFMPEG
+    AVFormatContext* avFormatCtx = nullptr;
+    AVCodecContext* avCodecCtx = nullptr;
+    int audioStreamIndex = -1;
+    AVPacket* avPacket = nullptr;
+    AVFrame* avFrame = nullptr;
 #endif
 
 #ifdef WITH_CDIO
@@ -68,6 +77,9 @@ struct AudioEngine::Impl {
 #ifdef WITH_CDIO
         CDDA,
 #endif
+#ifdef WITH_FFMPEG
+        FFMPEG,
+#endif
         UNKNOWN
     } decoderType = DecoderType::UNKNOWN;
 };
@@ -83,6 +95,75 @@ AudioEngine::AudioEngine() : pImpl(std::make_unique<Impl>()) {
     m_dspManager = std::make_shared<fb2k::dsp_manager>();
     m_dspManager->add_dsp(m_eqDSP);
     m_dspManager->add_dsp(m_crystDSP);
+    
+#ifdef WITH_FFMPEG
+    avformat_network_init();
+#endif
+    
+    initFFT();
+}
+
+void AudioEngine::initFFT() {
+    if (m_fftInitialized) return;
+    
+    for (int i = 0; i < 512; ++i) {
+        float n = (float)i / 512.0f;
+        m_window[i] = 0.5f * (1.0f - std::cos(2.0f * M_PI * n));
+    }
+    m_fftInitialized = true;
+}
+
+void AudioEngine::computeFFT(const float* input, float* output, int size) {
+    int n = size;
+    int m = 0;
+    while ((1 << m) < n) ++m;
+    
+    float real[512] = {0}, imag[512] = {0};
+    
+    for (int i = 0; i < n; ++i) {
+        real[i] = input[i] * m_window[i];
+        imag[i] = 0.0f;
+    }
+    
+    int j = 0;
+    for (int i = 0; i < n - 1; ++i) {
+        if (i < j) {
+            std::swap(real[i], real[j]);
+            std::swap(imag[i], imag[j]);
+        }
+        int k = n / 2;
+        while (k <= j) {
+            j -= k;
+            k /= 2;
+        }
+        j += k;
+    }
+    
+    for (int len = 2; len <= n; len *= 2) {
+        float angle = -2.0f * M_PI / len;
+        float wreal = 1.0f, wimag = 0.0f;
+        float wprodr = std::cos(angle), wprodri = std::sin(angle);
+        
+        for (int i = 0; i < len / 2; ++i) {
+            for (int k = i; k < n; k += len) {
+                int kp = k + len / 2;
+                float treal = wreal * real[kp] - wimag * imag[kp];
+                float timag = wreal * imag[kp] + wimag * real[kp];
+                real[kp] = real[k] - treal;
+                imag[kp] = imag[k] - timag;
+                real[k] += treal;
+                imag[k] += timag;
+            }
+            float twreal = wreal;
+            wreal = wreal * wprodr - wimag * wprodri;
+            wimag = twreal * wprodri + wimag * wprodr;
+        }
+    }
+    
+    for (int i = 0; i < n / 2; ++i) {
+        float magnitude = std::sqrt(real[i] * real[i] + imag[i] * imag[i]) / n;
+        output[i] = magnitude * 4.0f;
+    }
 }
 
 AudioEngine::~AudioEngine() {
@@ -93,6 +174,10 @@ AudioEngine::~AudioEngine() {
         ma_device_uninit(&pImpl->device);
         pImpl->isDeviceInitialized = false;
     }
+    
+#ifdef WITH_FFMPEG
+    avformat_network_deinit();
+#endif
 }
 
 void AudioEngine::cleanupDecoder() {
@@ -131,17 +216,26 @@ std::string toLower(const std::string& s) {
 }
 
 bool AudioEngine::loadFile(const std::string& path) {
-    fprintf(stderr, "CDDA: loadFile called with: %s\n", path.c_str());
     stop();
-    fprintf(stderr, "CDDA: stop() done\n");
     cleanupDecoder();
-    fprintf(stderr, "CDDA: cleanupDecoder() done\n");
     
     if (path.find("/dev/") == 0) {
 #ifdef WITH_CDIO
         bool result = loadCDDA(path);
         fprintf(stderr, "CDDA: loadCDDA returned %d\n", result);
         return result;
+#else
+        return false;
+#endif
+    }
+    
+    bool isURL = (path.find("http://") == 0 || path.find("https://") == 0 ||
+                  path.find("rtsp://") == 0 || path.find("rtmp://") == 0 ||
+                  path.find("mms://") == 0 || path.find("rtp://") == 0);
+    
+    if (isURL) {
+#ifdef WITH_FFMPEG
+        return loadFFmpeg(path);
 #else
         return false;
 #endif
@@ -164,7 +258,56 @@ bool AudioEngine::loadFile(const std::string& path) {
 #endif
     }
     
+    if (ext == "mid" || ext == "midi") {
+        return loadMIDI(path);
+    }
+
+#ifdef WITH_FFMPEG
+    if (ext == "asf" || ext == "wma" || ext == "wmv" || ext == "aac" || ext == "m4a" || 
+        ext == "ac3" || ext == "dts" || ext == "ape" || ext == "tta" ||
+        ext == "mp3" || ext == "mp2" || ext == "aiff" || ext == "aif" || ext == "mka") {
+        return loadFFmpeg(path);
+    }
+#endif
+    
+    if (ext == "mid" || ext == "midi") {
+        return loadMIDI(path);
+    }
+    
     return loadSndFile(path);
+}
+
+bool AudioEngine::loadMIDI(const std::string& path) {
+    auto& midi = MIDIManagerSingleton::instance();
+    
+    if (!midi.loadMIDI(path)) {
+        return false;
+    }
+    
+    pImpl->decoderType = Impl::DecoderType::UNKNOWN;
+    pImpl->sfInfo.samplerate = 44100;
+    pImpl->sfInfo.channels = 2;
+    pImpl->sfInfo.frames = static_cast<sf_count_t>(midi.getDuration() * 44100);
+    
+    std::string filename = path;
+    size_t lastSlash = filename.find_last_of("/\\");
+    if (lastSlash != std::string::npos) {
+        filename = filename.substr(lastSlash + 1);
+    }
+    size_t dotPos = filename.find_last_of('.');
+    if (dotPos != std::string::npos) {
+        filename = filename.substr(0, dotPos);
+    }
+    
+    m_metadata.title = filename;
+    m_metadata.artist = "MIDI";
+    m_metadata.album = "SoundFont Synthesizer";
+    m_metadata.format = "MIDI";
+    m_metadata.channels = "Stereo";
+    m_metadata.sampleRate = "44100 Hz";
+    m_metadata.bitDepth = "Float";
+    
+    return true;
 }
 
 bool AudioEngine::loadSndFile(const std::string& path) {
@@ -182,6 +325,96 @@ bool AudioEngine::loadSndFile(const std::string& path) {
     readSndFileMetadata();
     return true;
 }
+
+#ifdef WITH_FFMPEG
+bool AudioEngine::loadFFmpeg(const std::string& path) {
+    pImpl->avFormatCtx = avformat_alloc_context();
+    if (!pImpl->avFormatCtx) return false;
+    
+    if (avformat_open_input(&pImpl->avFormatCtx, path.c_str(), nullptr, nullptr) < 0) {
+        avformat_close_input(&pImpl->avFormatCtx);
+        pImpl->avFormatCtx = nullptr;
+        return false;
+    }
+    
+    avformat_find_stream_info(pImpl->avFormatCtx, nullptr);
+    
+    pImpl->audioStreamIndex = -1;
+    for (unsigned i = 0; i < pImpl->avFormatCtx->nb_streams; i++) {
+        if (pImpl->avFormatCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
+            pImpl->audioStreamIndex = i;
+            break;
+        }
+    }
+    if (pImpl->audioStreamIndex < 0) {
+        avformat_close_input(&pImpl->avFormatCtx);
+        pImpl->avFormatCtx = nullptr;
+        return false;
+    }
+    
+    AVCodecParameters* cp = pImpl->avFormatCtx->streams[pImpl->audioStreamIndex]->codecpar;
+    const AVCodec* codec = avcodec_find_decoder(cp->codec_id);
+    if (!codec) {
+        avformat_close_input(&pImpl->avFormatCtx);
+        pImpl->avFormatCtx = nullptr;
+        return false;
+    }
+    
+    pImpl->avCodecCtx = avcodec_alloc_context3(codec);
+    avcodec_parameters_to_context(pImpl->avCodecCtx, cp);
+    avcodec_open2(pImpl->avCodecCtx, codec, nullptr);
+    
+    pImpl->avPacket = av_packet_alloc();
+    pImpl->avFrame = av_frame_alloc();
+    
+    pImpl->sfInfo.samplerate = pImpl->avCodecCtx->sample_rate;
+    pImpl->sfInfo.channels = pImpl->avCodecCtx->ch_layout.nb_channels;
+    pImpl->sfInfo.frames = pImpl->avFormatCtx->streams[pImpl->audioStreamIndex]->duration;
+    
+    pImpl->decoderType = Impl::DecoderType::FFMPEG;
+    return true;
+}
+
+sf_count_t AudioEngine::decodeFFmpegFrame(sf_count_t maxFrames, float* left, float* right) {
+    if (!pImpl->avFormatCtx || !pImpl->avCodecCtx || !pImpl->avPacket || !pImpl->avFrame) return 0;
+    
+    sf_count_t framesRead = 0;
+    AVPacket* pkt = av_packet_alloc();
+    
+    while (framesRead < maxFrames) {
+        int ret = av_read_frame(pImpl->avFormatCtx, pkt);
+        if (ret < 0) { av_packet_free(&pkt); break; }
+        
+        if (pkt->stream_index != pImpl->audioStreamIndex) {
+            av_packet_unref(pkt);
+            continue;
+        }
+        
+        ret = avcodec_send_packet(pImpl->avCodecCtx, pkt);
+        av_packet_unref(pkt);
+        if (ret < 0) continue;
+        
+        ret = avcodec_receive_frame(pImpl->avCodecCtx, pImpl->avFrame);
+        if (ret < 0) {
+            if (ret == AVERROR(EAGAIN)) continue;
+            break;
+        }
+        
+        int nb = pImpl->avFrame->nb_samples;
+        float* data = (float*)pImpl->avFrame->data[0];
+        
+        for (int i = 0; i < nb && framesRead < maxFrames; i++) {
+            left[framesRead + i] = data[i] * 0.1f;
+            right[framesRead + i] = data[i] * 0.1f;
+        }
+        framesRead += nb;
+        av_frame_unref(pImpl->avFrame);
+    }
+    
+    av_packet_free(&pkt);
+    return framesRead;
+}
+#endif
 
 #ifdef WITH_OPENMPT
 bool AudioEngine::loadOpenMPT(const std::string& path) {
@@ -349,6 +582,13 @@ void AudioEngine::decodeLoop() {
                 }
                 break;
 #endif
+#ifdef WITH_FFMPEG
+            case Impl::DecoderType::FFMPEG:
+                if (pImpl->avFormatCtx && pImpl->avCodecCtx) {
+                    framesRead = decodeFFmpegFrame(chunkSize, tempBufferLeft.data(), tempBufferRight.data());
+                }
+                break;
+#endif
             default:
                 if (pImpl->sndFile) {
                     std::vector<float> tempInterleaved(chunkSize * 2);
@@ -455,11 +695,21 @@ void AudioEngine::play() {
         return;
     }
     
+    auto& midi = MIDIManagerSingleton::instance();
+    if (midi.isLoaded()) {
+        midi.play();
+    }
+    
     m_isPlaying.store(true, std::memory_order_release);
 }
 
 void AudioEngine::pause() {
     if (!m_isPlaying.exchange(false)) return;
+    
+    auto& midi = MIDIManagerSingleton::instance();
+    if (midi.isLoaded()) {
+        midi.setPlaying(false);
+    }
     
     if (pImpl->isDeviceInitialized && ma_device_is_started(&pImpl->device)) {
         ma_device_stop(&pImpl->device);
@@ -469,6 +719,11 @@ void AudioEngine::pause() {
 void AudioEngine::stop() {
     bool wasPlaying = m_isPlaying.load(std::memory_order_acquire);
     m_isPlaying.store(false, std::memory_order_release);
+    
+    auto& midi = MIDIManagerSingleton::instance();
+    if (midi.isLoaded()) {
+        midi.stop();
+    }
     
     if (pImpl->isDeviceInitialized && ma_device_is_started(&pImpl->device)) {
         ma_device_stop(&pImpl->device);
@@ -567,6 +822,10 @@ bool AudioEngine::hasValidDecoder() const {
         case Impl::DecoderType::OPENMPT:
             return (bool)pImpl->openmptModule;
 #endif
+#ifdef WITH_FFMPEG
+        case Impl::DecoderType::FFMPEG:
+            return pImpl->avFormatCtx != nullptr;
+#endif
         default:
             return pImpl->sndFile != nullptr;
     }
@@ -581,14 +840,32 @@ void AudioEngine::setCrystallizer(float amount) {
 }
 
 void AudioEngine::getLevels(float& left, float& right) {
-    left = pImpl->peakL;
-    right = pImpl->peakR;
+    float rawL = pImpl->peakL;
+    float rawR = pImpl->peakR;
+    
+    left = std::min(1.0f, rawL * 2.0f);
+    right = std::min(1.0f, rawR * 2.0f);
 }
 
 void AudioEngine::getSpectrum(std::vector<float>& outSpectrum) {
-    outSpectrum.assign(128, 0.0f);
-    for (int i = 0; i < 128; ++i) {
-        outSpectrum[i] = std::abs(m_lastSamples[i * 4]) * 0.5f;
+    static float smoothBuffer[64] = {0};
+    static float decay = 0.92f;
+    
+    outSpectrum.assign(64, 0.0f);
+    
+    for (int i = 0; i < 64; ++i) {
+        int idx = (i * 8) % 512;
+        if (idx < 0 || idx >= 512) continue;
+        
+        float val = std::abs(m_lastSamples[idx]);
+        
+        if (val > smoothBuffer[i]) {
+            smoothBuffer[i] = val;
+        } else {
+            smoothBuffer[i] *= decay;
+        }
+        
+        outSpectrum[i] = smoothBuffer[i] * 1.5f;
     }
 }
 
@@ -609,6 +886,13 @@ void AudioEngine::processAudioFrames(float* output, int frameCount) {
     
     if (!m_isPlaying.load(std::memory_order_acquire)) {
         std::memset(output, 0, frameCount * channels * sizeof(float));
+        return;
+    }
+    
+    auto& midi = MIDIManagerSingleton::instance();
+    if (m_metadata.format == "MIDI" && midi.isLoaded()) {
+        fprintf(stderr, "MIDI: processing audio\n");
+        midi.getAudio(output, frameCount);
         return;
     }
     
@@ -662,15 +946,19 @@ void AudioEngine::processAudioFrames(float* output, int frameCount) {
                 if (absSample > impl->peakR) impl->peakR = absSample;
             }
             
-            if (ch == 0 && (i % 4) == 0) {
-                int idx = m_sampleIdx.fetch_add(1) % 512;
-                m_lastSamples[idx] = sample;
+            int idx = m_sampleIdx.fetch_add(1) % 512;
+            m_lastSamples[idx] = sample;
+            
+            static int fftIdx = 0;
+            if (ch == 0) {
+                m_fftBuffer[fftIdx] = sample;
+                fftIdx = (fftIdx + 1) % 512;
             }
         }
     }
     
-    impl->peakL *= 0.95f;
-    impl->peakR *= 0.95f;
+    impl->peakL *= 0.98f;
+    impl->peakR *= 0.98f;
     
             if (framesToRead < frameCount) {
         std::memset(&output[framesToRead * channels], 0, (frameCount - framesToRead) * channels * sizeof(float));

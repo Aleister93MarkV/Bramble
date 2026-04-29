@@ -13,10 +13,16 @@
 #include <QListWidget>
 #include <QFileSystemModel>
 #include <QTreeView>
+#include <QPixmap>
+#include <QDialog>
 #include <memory>
+
 #include "AudioEngine.hpp"
 #include "EqualizerWindow.hpp"
 #include "VisualizerWindow.hpp"
+#include "VUMeterWindow.hpp"
+#include "SoundFontManager.hpp"
+#include "MIDIManager.hpp"
 #include "SkinWindow.hpp"
 
 class MainWindow : public QWidget {
@@ -34,6 +40,8 @@ private slots:
     void togglePlayPause();
     void toggleEQ();
     void toggleVis();
+    void toggleVUMeter();
+    void toggleSoundFont();
     void toggleSkin();
     void updateUI();
     void loadAlbumCover(const QString& audioPath);
@@ -49,11 +57,16 @@ private:
     void downloadCoverFromReleaseId(const QString& releaseId, const QString& basePath);
     void saveCoverToFile(QNetworkReply* reply, const QString& basePath);
     void setCoverImage(const QString& coverPath);
+    void showCoverFull();
+    
+    QPixmap m_coverPixmap;
     AudioEngine* m_engine;
 
     // Sub-windows
     std::unique_ptr<EqualizerWindow> m_eqWin;
     std::unique_ptr<VisualizerWindow> m_visWin;
+    std::unique_ptr<VUMeterWindow> m_vuWin;
+    std::unique_ptr<SoundFontManager> m_sfWin;
     std::unique_ptr<SkinWindow> m_skinWin;
 
     // UI Elements
@@ -61,6 +74,8 @@ private:
     QPushButton* m_btnOpen;
     QPushButton* m_btnEQ;
     QPushButton* m_btnVis;
+    QPushButton* m_btnVUMeter;
+    QPushButton* m_btnSF;
     QPushButton* m_btnSkin;
     QMenu* m_openMenu;
     QLabel* m_lblInfo;

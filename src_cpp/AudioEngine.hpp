@@ -12,8 +12,19 @@
 #include "foobar2k_sdk/crystallizer_dsp.hpp"
 #include "foobar2k_sdk/dsp_manager.hpp"
 
+#include <sndfile.h>
+
 #define WITH_OPENMPT
-#define WITH_CDIO
+//#define WITH_CDIO
+#define WITH_FFMPEG
+
+#ifdef WITH_FFMPEG
+extern "C" {
+#include <libavformat/avformat.h>
+#include <libavcodec/avcodec.h>
+#include <libavutil/avutil.h>
+}
+#endif
 
 struct AudioMetadata {
     std::string title;
@@ -66,10 +77,18 @@ private:
     bool loadSndFile(const std::string& path);
     void readSndFileMetadata();
     
+#ifdef WITH_FFMPEG
+    bool loadFFmpeg(const std::string& path);
+    void readFFmpegMetadata();
+    sf_count_t decodeFFmpegFrame(sf_count_t maxFrames, float* left, float* right);
+#endif
+
 #ifdef WITH_OPENMPT
     bool loadOpenMPT(const std::string& path);
     void readOpenMPTMetadata();
 #endif
+
+    bool loadMIDI(const std::string& path);
 
 #ifdef WITH_CDIO
     bool loadCDDA(const std::string& path);
@@ -96,6 +115,13 @@ private:
     std::atomic<int> m_sampleIdx{0};
     float m_peakL = 0.0f;
     float m_peakR = 0.0f;
+    
+    float m_fftBuffer[512] = {0};
+    float m_window[512] = {0};
+    bool m_fftInitialized = false;
+    
+    void computeFFT(const float* input, float* output, int size);
+    void initFFT();
 
     AudioMetadata m_metadata;
 };

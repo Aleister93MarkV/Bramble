@@ -1,5 +1,6 @@
 #include "MainWindow.hpp"
 #include "SkinManager.hpp"
+#include "MIDIManager.hpp"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFileDialog>
@@ -146,14 +147,45 @@ void MainWindow::loadAlbumCover(const QString& audioPath) {
 void MainWindow::setCoverImage(const QString& coverPath) {
     QPixmap pixmap(coverPath);
     if (!pixmap.isNull()) {
-        pixmap = pixmap.scaled(150, 150, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        pixmap = pixmap.scaled(200, 200, Qt::KeepAspectRatio, Qt::SmoothTransformation);
         m_lblCover->setPixmap(pixmap);
         m_lblCover->setText("");
-        m_lblCover->setStyleSheet("");
+        m_lblCover->setStyleSheet("QLabel { border: 2px solid #555; }");
+        m_coverPixmap = pixmap;
     } else {
         m_lblCover->setText("No Cover");
-        m_lblCover->setStyleSheet("QLabel { background-color: #222; color: #888; font-size: 10px; }");
+        m_lblCover->setStyleSheet("QLabel { background-color: #222; color: #888; font-size: 12px; }");
     }
+}
+
+void MainWindow::showCoverFull() {
+    if (m_coverPixmap.isNull()) {
+        QString path = m_engine->getMetadata().title.c_str();
+        if (path.isEmpty()) path = "No Cover";
+    }
+    
+    QDialog dialog(this);
+    dialog.setWindowTitle("Album Cover");
+    dialog.setStyleSheet("QDialog { background-color: #111; }");
+    QVBoxLayout* layout = new QVBoxLayout(&dialog);
+    
+    QLabel* label = new QLabel(&dialog);
+    if (!m_coverPixmap.isNull()) {
+        QPixmap scaled = m_coverPixmap.scaled(500, 500, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        label->setPixmap(scaled);
+    } else {
+        label->setText("No Cover");
+        label->setStyleSheet("QLabel { color: #888; font-size: 20px; }");
+    }
+    label->setAlignment(Qt::AlignCenter);
+    layout->addWidget(label);
+    
+    QPushButton* btnClose = new QPushButton("Close", &dialog);
+    btnClose->setStyleSheet("QPushButton { background-color: #333; color: #ccc; padding: 10px; }");
+    connect(btnClose, &QPushButton::clicked, &dialog, &QDialog::accept);
+    layout->addWidget(btnClose);
+    
+    dialog.exec();
 }
 
 MainWindow::MainWindow(AudioEngine* engine, QWidget *parent)
@@ -161,8 +193,15 @@ MainWindow::MainWindow(AudioEngine* engine, QWidget *parent)
 {
     m_eqWin = std::make_unique<EqualizerWindow>(engine);
     m_visWin = std::make_unique<VisualizerWindow>(engine);
+    m_vuWin = std::make_unique<VUMeterWindow>(engine);
+    m_sfWin = std::make_unique<SoundFontManager>(this);
     m_skinWin = std::make_unique<SkinWindow>(this);
     m_networkManager = new QNetworkAccessManager(this);
+    
+    connect(m_sfWin.get(), &SoundFontManager::soundFontChanged, this, [](const QString& path) {
+        auto& midi = MIDIManagerSingleton::instance();
+        midi.loadSoundFont(path);
+    });
     m_fileModel = new QFileSystemModel(this);
 
     setWindowTitle("Bramble Audio Player");
@@ -184,12 +223,16 @@ MainWindow::MainWindow(AudioEngine* engine, QWidget *parent)
     m_btnPlay = new QPushButton("PLAY", this);
     m_btnEQ = new QPushButton("EQ", this);
     m_btnVis = new QPushButton("VIS", this);
+    m_btnVUMeter = new QPushButton("VU", this);
+    m_btnSF = new QPushButton("SF", this);
     m_btnSkin = new QPushButton("SKIN", this);
 
     btnLayout->addWidget(m_btnOpen);
     btnLayout->addWidget(m_btnPlay);
     btnLayout->addWidget(m_btnEQ);
     btnLayout->addWidget(m_btnVis);
+    btnLayout->addWidget(m_btnVUMeter);
+    btnLayout->addWidget(m_btnSF);
     btnLayout->addWidget(m_btnSkin);
     leftLayout->addLayout(btnLayout);
 
@@ -238,11 +281,17 @@ MainWindow::MainWindow(AudioEngine* engine, QWidget *parent)
     mainLayout->addLayout(rightLayout);
 
     m_lblCover = new QLabel(this);
-    m_lblCover->setFixedSize(120, 120);
+    m_lblCover->setFixedSize(200, 200);
     m_lblCover->setAlignment(Qt::AlignCenter);
     m_lblCover->setText("No Cover");
-    m_lblCover->setStyleSheet("QLabel { background-color: #222; color: #888; border: 2px solid #444; font-size: 10px; }");
+    m_lblCover->setStyleSheet("QLabel { background-color: #222; color: #888; border: 2px solid #444; font-size: 12px; }");
+    m_lblCover->setScaledContents(false);
     leftLayout->addWidget(m_lblCover);
+    
+    QPushButton* m_btnCoverFull = new QPushButton("Expand Cover", this);
+    m_btnCoverFull->setStyleSheet("QPushButton { background-color: #333; color: #ccc; border: 1px solid #555; padding: 5px; } QPushButton:hover { background-color: #444; }");
+    connect(m_btnCoverFull, &QPushButton::clicked, this, &MainWindow::showCoverFull);
+    leftLayout->addWidget(m_btnCoverFull);
 
     m_lblTime = new QLabel("0:00/0:00", this);
     m_lblTime->setAlignment(Qt::AlignCenter);
@@ -269,6 +318,8 @@ MainWindow::MainWindow(AudioEngine* engine, QWidget *parent)
     connect(m_btnPlay, &QPushButton::clicked, this, &MainWindow::togglePlayPause);
     connect(m_btnEQ, &QPushButton::clicked, this, &MainWindow::toggleEQ);
     connect(m_btnVis, &QPushButton::clicked, this, &MainWindow::toggleVis);
+    connect(m_btnVUMeter, &QPushButton::clicked, this, &MainWindow::toggleVUMeter);
+    connect(m_btnSF, &QPushButton::clicked, this, &MainWindow::toggleSoundFont);
     connect(m_btnSkin, &QPushButton::clicked, this, &MainWindow::toggleSkin);
     connect(m_skinWin.get(), &SkinWindow::themeApplied, this, [this](const QString&) {
         setStyleSheet(SkinManager::getMainWindowStyle());
@@ -295,7 +346,7 @@ MainWindow::MainWindow(AudioEngine* engine, QWidget *parent)
 }
 
 void MainWindow::openFileDialog() {
-    QString fileName = QFileDialog::getOpenFileName(this, "Open Audio File", "", "Audio Files (*.mp3 *.wav *.flac *.mod *.xm *.s3m *.it);;All Files (*.*)");
+    QString fileName = QFileDialog::getOpenFileName(this, "Open Audio File", "", "Audio Files (*.mp3 *.wav *.flac *.ogg *.m4a *.aac *.wma *.wmv *.asf *.ac3 *.mod *.xm *.s3m *.it);;All Files (*.*)");
     if (!fileName.isEmpty()) {
         loadAudioFile(fileName);
     }
@@ -349,17 +400,17 @@ void MainWindow::playAudioCD() {
     loadAlbumCover(selectedCD);
     
     QStringList trackList;
-    int trackCount = m_engine->getCDTrackCount();
-    if (trackCount > 0) {
-        for (int i = 0; i < trackCount; ++i) {
-            QString info = QString::fromStdString(m_engine->getCDTrackInfo(i));
-            trackList.append(info.isEmpty() ? QString("Track %1").arg(i + 1) : info);
-        }
-    } else {
+    //int trackCount = m_engine->getCDTrackCount();
+    //if (trackCount > 0) {
+    //    for (int i = 0; i < trackCount; ++i) {
+    //        QString info = QString::fromStdString(m_engine->getCDTrackInfo(i));
+    //        trackList.append(info.isEmpty() ? QString("Track %1").arg(i + 1) : info);
+    //    }
+    //} else {
         for (int i = 1; i <= 20; ++i) {
             trackList.append(QString("Track %1").arg(i));
         }
-    }
+    //}
     setCDTrackList(trackList);
 }
 
@@ -417,6 +468,22 @@ void MainWindow::toggleVis() {
     }
 }
 
+void MainWindow::toggleVUMeter() {
+    if (m_vuWin->isVisible()) {
+        m_vuWin->hide();
+    } else {
+        m_vuWin->show();
+    }
+}
+
+void MainWindow::toggleSoundFont() {
+    if (m_sfWin->isVisible()) {
+        m_sfWin->hide();
+    } else {
+        m_sfWin->show();
+    }
+}
+
 void MainWindow::toggleSkin() {
     if (m_skinWin && m_skinWin->isVisible()) {
         m_skinWin->hide();
@@ -465,7 +532,7 @@ void MainWindow::onFileDoubleClicked(const QModelIndex& index) {
         m_fileBrowser->setRootIndex(index);
         refreshFileList(path);
     } else {
-        QStringList audioExts = {"mp3", "wav", "flac", "ogg", "m4a", "aac", "wma", "mod", "xm", "s3m", "it"};
+        QStringList audioExts = {"mp3", "wav", "flac", "ogg", "m4a", "aac", "wma", "wmv", "asf", "mod", "xm", "s3m", "it", "ac3", "dts", "ape", "tta"};
         if (audioExts.contains(info.suffix().toLower())) {
             loadAudioFile(path);
             loadAlbumCover(path);
@@ -482,7 +549,7 @@ void MainWindow::onTrackDoubleClicked(QListWidgetItem* item) {
         
         if (!data.startsWith("/")) {
             int trackIndex = data.toInt();
-            m_engine->setCDTrack(trackIndex);
+            //m_engine->setCDTrack(trackIndex);
             m_currentTrackIndex = index;
         } else {
             loadAudioFile(data);
@@ -500,7 +567,8 @@ void MainWindow::refreshFileList(const QString& path) {
     QDir dir(path);
     QStringList filters;
     filters << "*.mp3" << "*.wav" << "*.flac" << "*.ogg" << "*.m4a" << "*.aac" 
-            << "*.wma" << "*.mod" << "*.xm" << "*.s3m" << "*.it" << "*.ape" << "*.opus";
+            << "*.wma" << "*.wmv" << "*.asf" << "*.ac3" << "*.dts" << "*.ape" << "*.tta"
+            << "*.mod" << "*.xm" << "*.s3m" << "*.it" << "*.opus";
     
     QFileInfoList files = dir.entryInfoList(filters, QDir::Files | QDir::Readable);
     for (const QFileInfo& file : files) {

@@ -5,7 +5,7 @@ CONFIG += c++20
 
 INCLUDEPATH += include
 
-LIBS += -lsndfile -lopenmpt
+LIBS += -lsndfile -lopenmpt -lavformat -lavcodec -lavutil
 
 SOURCES += \
     src_cpp/main.cpp \
